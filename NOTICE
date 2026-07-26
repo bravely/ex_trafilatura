@@ -1,0 +1,12 @@
+ExTrafilatura
+Copyright 2026 Jake Demarest-Mays
+
+This product includes software derived from Trafilatura
+(https://github.com/adbar/trafilatura), Copyright Adrien Barbaresi and
+the Trafilatura contributors, licensed under the Apache License,
+Version 2.0.
+
+The extraction algorithms, heuristics, XPath expressions, and evaluation
+fixtures in this project are ported from Trafilatura's Python
+implementation to Rust. Trafilatura is a separate project and is not
+affiliated with, nor does it endorse, this port.
