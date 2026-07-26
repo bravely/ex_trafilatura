@@ -1,21 +1,77 @@
 # ExTrafilatura
 
-**TODO: Add description**
+Main content and metadata extraction for web pages. Elixir bindings for
+[rs-trafilatura][rs-trafilatura], loaded as a NIF via [Rustler][rustler].
+
+> **Status: early development.** Nothing is implemented yet, and the package is
+> not on Hex.
+
+## What it does
+
+Given the raw HTML of a page, rs-trafilatura returns the article body plus
+metadata — title, author, date, description, categories — and discards
+navigation, sidebars, boilerplate, and ads. It also classifies page type,
+scores its own extraction confidence, and can emit Markdown.
+
+This library makes that available to Elixir. It is a binding layer: extraction
+logic lives upstream, not here.
+
+## Why a NIF
+
+The reference implementation, [Trafilatura][trafilatura], is Python. Calling it
+from Elixir means shelling out to an interpreter, running a sidecar, or
+embedding Python in the release — each of which puts a Python runtime and its
+dependency tree into every deploy target, for what is fundamentally a pure
+function from HTML to text.
+
+rs-trafilatura is a Rust port of that work, so binding to it as a NIF ships the
+extractor inside the Elixir release instead: nothing external to install, pin,
+or keep alive.
+
+## How this relates to upstream projects
+
+Three layers, each independent of the others:
+
+| Project | Role |
+| --- | --- |
+| [trafilatura][trafilatura] (Python) | Original implementation and reference behaviour |
+| [rs-trafilatura][rs-trafilatura] (Rust) | Port of that behaviour, plus page-type classification and quality scoring |
+| **ExTrafilatura** (Elixir) | NIF bindings for rs-trafilatura |
+
+This project is not affiliated with or endorsed by either upstream.
+
+Practically, this splits bug reports: *what* gets extracted from a page is
+rs-trafilatura's behaviour and belongs in
+[its tracker][rs-trafilatura-issues]. Anything about the Elixir API,
+type conversion across the NIF boundary, build, or packaging belongs here.
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `ex_trafilatura` to your list of dependencies in `mix.exs`:
+Not yet published to Hex.
 
-```elixir
-def deps do
-  [
-    {:ex_trafilatura, "~> 0.1.0"}
-  ]
-end
-```
+## Development
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/ex_trafilatura>.
+Requires Elixir and a Rust toolchain. Build and test instructions will land
+once the bindings exist.
 
+## Contributing
+
+Issues and pull requests welcome — see the split above for where extraction
+problems should go.
+
+## License
+
+Licensed under either of [Apache License 2.0](LICENSE-APACHE) or
+[MIT License](LICENSE-MIT) at your option, matching rs-trafilatura.
+
+Unless you state otherwise, any contribution you intentionally submit for
+inclusion in this project shall be dual licensed as above, without additional
+terms or conditions.
+
+Precompiled builds bundle rs-trafilatura and its dependencies; their terms are
+reproduced in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+[trafilatura]: https://github.com/adbar/trafilatura
+[rs-trafilatura]: https://github.com/Murrough-Foley/rs-trafilatura
+[rs-trafilatura-issues]: https://github.com/Murrough-Foley/rs-trafilatura/issues
+[rustler]: https://github.com/rusterlium/rustler
