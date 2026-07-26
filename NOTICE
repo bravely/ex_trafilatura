@@ -1,12 +1,14 @@
 ExTrafilatura
 Copyright 2026 Jake Demarest-Mays
 
-This product includes software derived from Trafilatura
-(https://github.com/adbar/trafilatura), Copyright Adrien Barbaresi and
-the Trafilatura contributors, licensed under the Apache License,
-Version 2.0.
+This product contains rs-trafilatura (https://github.com/Murrough-Foley/rs-trafilatura),
+Copyright Murrough Foley, licensed under either of Apache License 2.0 or the
+MIT License, at your option. Precompiled builds of this package link
+rs-trafilatura and therefore redistribute it in object form.
 
-The extraction algorithms, heuristics, XPath expressions, and evaluation
-fixtures in this project are ported from Trafilatura's Python
-implementation to Rust. Trafilatura is a separate project and is not
-affiliated with, nor does it endorse, this port.
+rs-trafilatura is itself a Rust port of Trafilatura
+(https://github.com/adbar/trafilatura), Copyright Adrien Barbaresi and the
+Trafilatura contributors, licensed under the Apache License, Version 2.0,
+and of go-trafilatura (https://github.com/markusmobius/go-trafilatura).
+
+Neither project is affiliated with, nor endorses, these Elixir bindings.
