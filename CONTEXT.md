@@ -11,9 +11,6 @@ extraction for web pages, with no Python at deploy time.
 > (`nchapman/trafilatura-rs`), read and executed directly. The crate choice and the
 > measurements behind it are in
 > [`docs/research/crate-comparison.md`](docs/research/crate-comparison.md).
-> [`docs/research/rs-trafilatura-api.md`](docs/research/rs-trafilatura-api.md) documents
-> the crate we did **not** pick; keep it for the record, but do not treat it as
-> describing our dependency.
 
 ## Why this exists
 
@@ -156,10 +153,45 @@ Genuinely unresolved. Each is an ADR waiting to be written, not a gap to paper o
   a structured list. If callers want structured image data, we either parse
   `content_html` in Elixir (Floki) or do not offer it. Measured: 400/925 pages carry
   at least one image in extracted content.
-- **Whether to pursue time-of-day upstream.** `Metadata.date` is a `NaiveDate`, but
-  the crate parses a full offset-aware timestamp and then discards the time
-  (`dt.date_naive()` in `src/metadata/mod.rs`). Widening this is a small, contributable
-  change rather than a fork. Worth doing if publication *time* matters to us.
+- **Whether to pursue time-of-day upstream, or vendor it.** `Metadata.date` is a
+  `NaiveDate`, but the crate parses a full offset-aware timestamp and then discards
+  the time (`dt.date_naive()` in `src/metadata/mod.rs`). The case for contributing is
+  strong: go-trafilatura's `Metadata.Date` is a full `time.Time`, so narrowing to a
+  date is a **deviation from the reference the crate exists to port** — and unlike
+  the crate's two other date deviations, `DEVIATIONS.md` does not record it. Nobody
+  has ever raised it upstream (zero issues or PRs mention it).
+
+  The obstacle is upstream responsiveness, not technical difficulty — see below.
+
+## Upstream health
+
+Checked 2026-07-26. This bears on any plan that routes through upstream.
+
+- **The repository is effectively dormant.** Last commit to `main` is 2026-03-09;
+  crates.io is still at 0.3.0. Tags `v0.3.1`–`v0.3.7` exist but all carry
+  `version = "0.3.0"` — they release the language-binding artifacts, not the crate.
+- **Two PRs sit unmerged**, both from outside contributors:
+  - [#2](https://github.com/nchapman/trafilatura-rs/pull/2), open since 2026-03-18 —
+    a pure dependency bump (`ego-tree` 0.10→0.11, `html5ever` 0.36→0.39, `scraper`
+    0.25→0.26, `tendril` 0.4→0.5) that fixes a **reported panic**, see below.
+  - [#3](https://github.com/nchapman/trafilatura-rs/pull/3), open since 2026-06-03 —
+    a Windows path-handling fix in image detection.
+- **The one open issue is a reachable panic in the version we depend on.**
+  [#1](https://github.com/nchapman/trafilatura-rs/issues/1) reports
+  `ego-tree` 0.10.0 `unwrap()` on `None`, reached via
+  `extract` → `extract_document` → `doc_cleaning` → `strip_elements` →
+  `dom::tree::remove`. The reporter noted the repo "doesn't seem to have permission
+  set up for external contributors."
+
+**What this means for us.** Assume upstream will not merge our changes on any useful
+timescale. Plan to carry patches ourselves — a `[patch.crates-io]` entry or a
+vendored fork — rather than blocking on a PR. Verified locally: PR #2's bump applies
+cleanly to 0.3.0 with **no source changes** and the crate builds and tests green
+against it, so mitigating the panic is cheap and we should do it from the start.
+
+The time-of-day widening is a larger patch (a type change through ~8 signatures plus
+`result.rs`, `options.rs`, and the UniFFI mapping) and is worth opening upstream on
+principle — but design for it landing in our own tree.
 
 ## Safety constraints on the NIF
 
