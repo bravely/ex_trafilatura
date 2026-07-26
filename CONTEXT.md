@@ -1,64 +1,201 @@
 # Context: ExTrafilatura
 
-Elixir NIF bindings for `rs-trafilatura` — main content and metadata extraction for web pages, with no Python at deploy time.
+Elixir NIF bindings for the Rust `trafilatura` crate — main content and metadata
+extraction for web pages, with no Python at deploy time.
 
-> **Seed document.** The library is still scaffolding, so parts of this are stated purpose rather than settled design. Sharpen this with `/domain-modeling` as decisions land, and record the load-bearing ones as ADRs in `docs/adr/`.
+> **Seed document.** The library is still scaffolding, so parts of this are stated
+> purpose rather than settled design. Sharpen this with `/domain-modeling` as
+> decisions land, and record the load-bearing ones as ADRs in `docs/adr/`.
 >
-> Facts about the Rust crate below are confirmed against **`rs-trafilatura` v0.2.2** source, read directly from the published `.crate` artifact. Full findings with file:line citations: [`docs/research/rs-trafilatura-api.md`](docs/research/rs-trafilatura-api.md).
+> Facts about the Rust crate below are confirmed against **`trafilatura` v0.3.0**
+> (`nchapman/trafilatura-rs`), read and executed directly. The crate choice and the
+> measurements behind it are in
+> [`docs/research/crate-comparison.md`](docs/research/crate-comparison.md).
+> [`docs/research/rs-trafilatura-api.md`](docs/research/rs-trafilatura-api.md) documents
+> the crate we did **not** pick; keep it for the record, but do not treat it as
+> describing our dependency.
 
 ## Why this exists
 
-Python's `trafilatura` is the reference implementation for this kind of extraction, but depending on it from Elixir means shipping a Python runtime — a port, a pool, or a subprocess — into production. This library binds the Rust port instead, so extraction happens in-process over a NIF and deployment stays a single BEAM release.
+Python's `trafilatura` is the reference implementation for this kind of extraction,
+but depending on it from Elixir means shipping a Python runtime — a port, a pool, or
+a subprocess — into production. This library binds a Rust port instead, so extraction
+happens in-process over a NIF and deployment stays a single BEAM release.
 
-**No Python at deploy time** is the project's defining constraint. A change that reintroduces a Python dependency in the runtime path defeats the purpose of the library.
+**No Python at deploy time** is the project's defining constraint. A change that
+reintroduces a Python dependency in the runtime path defeats the purpose of the
+library.
+
+## Which crate, and why it matters
+
+There were two independent Rust ports. We bind **`trafilatura` 0.3.0**
+(`nchapman/trafilatura-rs`), a port of `go-trafilatura` which is itself a port of
+Python trafilatura.
+
+The sibling crate `rs-trafilatura` was evaluated and rejected. The disqualifying
+finding: it recurses over the DOM without any depth bound and **stack-overflows at
+~3000 nesting depth on a BEAM dirty-scheduler-sized stack** (~18 KB of HTML). A stack
+overflow is not a catchable panic — it aborts the OS process, so the entire node
+dies. It was also measurably slower (13.0 ms vs 4.8 ms mean per document) and less
+accurate (F-score 0.881 vs 0.913 on 925 real pages). Full evidence in the research
+doc.
+
+`trafilatura`'s behaviour is the source of truth for extraction semantics; this
+library's job is to expose it idiomatically, not to reimplement or second-guess it.
 
 ## Glossary
 
-- **Extraction** — the whole job: given an HTML document, return the parts a reader actually wants.
+- **Extraction** — the whole job: given an HTML document, return the parts a reader
+  actually wants.
 - **Main content** — the article body. The thing extraction is trying to keep.
-- **Boilerplate** — navigation, sidebars, headers, footers, ads, share widgets, related-post blocks. The thing extraction is trying to drop. "Main content vs boilerplate" is the central distinction in this domain; prefer these two terms over vaguer ones like "the text" or "junk".
-- **Metadata** — the descriptive fields about a document rather than its body: title, author, date, site name, description, categories, tags, license. Extracted from a mix of meta tags, JSON-LD, and heuristics over the markup.
-- **Comments** — reader comments. A separate extractable stream from main content, not boilerplate. Confirmed present in the Rust port: dedicated `comments_text` / `comments_html` fields and a dedicated `src/extractor/comments.rs`, gated behind `include_comments` (default `false`). Two wrinkles worth knowing: a short comment section is silently reset to `None`, and on forum-type pages the crate overrides the caller's option and folds comments into main content.
-- **Precision vs recall** — the core tuning axis. Favouring precision drops more borderline blocks (cleaner output, risks losing real content); favouring recall keeps more (fuller output, risks retaining boilerplate). Callers care about this tradeoff, so name it in these terms rather than as "strict"/"loose". In the crate these are `favor_precision` / `favor_recall` on the `Options` struct, both defaulting to `false`; they collapse to an effective `min_score` of 5000 / 1000 / 500, with precision winning if both are set.
-- **Warnings** — a `Vec<String>` on every result. The crate's only diagnostic channel: it reports degraded extraction here rather than by failing. Unstructured `format!` strings — surface them to callers, but never pattern-match on their text.
-- **NIF boundary** — the line between Elixir and the Rust crate. Anything crossing it is subject to BEAM scheduler rules: long work must not block a normal scheduler.
-- **`rs-trafilatura`** — the upstream Rust crate being bound. Its behaviour is the source of truth for extraction semantics; this library's job is to expose it idiomatically, not to reimplement or second-guess it.
+- **Boilerplate** — navigation, sidebars, headers, footers, ads, share widgets,
+  related-post blocks. The thing extraction is trying to drop. "Main content vs
+  boilerplate" is the central distinction in this domain; prefer these two terms over
+  vaguer ones like "the text" or "junk".
+- **Metadata** — the descriptive fields about a document rather than its body: title,
+  author, date, site name, description, categories, tags, license. Extracted from a
+  mix of meta tags, JSON-LD, OpenGraph, and heuristics over the markup.
+- **Comments** — reader comments. A separate extractable stream from main content,
+  not boilerplate. Surfaced as `comments_text` / `comments_html`, and **included by
+  default**: the crate's option is `exclude_comments` (default `false`), the inverse
+  sense of what you might expect. On 925 real pages, 168 produced comments and the
+  two streams were disjoint on 166 of them — so a caller joining content and comments
+  will usually not duplicate, but occasionally (~1%) will.
+- **Precision vs recall** — the core tuning axis. Favouring precision drops more
+  borderline blocks (cleaner output, risks losing real content); favouring recall
+  keeps more (fuller output, risks retaining boilerplate). Callers care about this
+  tradeoff, so name it in these terms rather than as "strict"/"loose". In the crate
+  it is a single `ExtractionFocus` enum — `Balanced` (default), `FavorPrecision`,
+  `FavorRecall` — not two independent booleans. It measurably works: `FavorPrecision`
+  moves precision 0.908 → 0.920.
+- **Fallback** — a second-chance extraction pass using the `libreadability` and
+  `justext` algorithms when the primary pass does poorly. Controlled by
+  `enable_fallback`. Python trafilatura does the same thing; this is fidelity, not
+  an invention.
+- **NIF boundary** — the line between Elixir and the Rust crate. Anything crossing it
+  is subject to BEAM scheduler rules: long work must not block a normal scheduler.
+- **`trafilatura`** — the upstream Rust crate being bound. Not to be confused with
+  Python `trafilatura` (the reference implementation) or `rs-trafilatura` (the
+  rejected sibling). When ambiguity is possible, say "the Rust crate" or "Python
+  trafilatura".
 
 ## What the crate forces
 
-These were open questions. Research settled them — the crate's shape decides most of them for us.
+These were open questions. Research settled them — the crate's shape decides most of
+them for us.
 
-- **Input type** — settled. The crate takes `&str` or `&[u8]` and **never fetches**, in any configuration. Even the optional `spider` feature only consumes an already-fetched page. So a URL-fetching layer is purely our choice to add or omit, not something inherited.
-- **Metadata as a separate call** — settled, and not in our favour. One call returns content and metadata together; the crate's `metadata` module is `pub(crate)`, so a metadata-only entry point is **not implementable** without patching upstream. Callers pay for both regardless.
-- **Output shape** — one result carries `content_text` (`String`) plus `content_html` and `content_markdown` (both `Option<String>`) simultaneously; format is not a mode. **No XML and no JSON** — a real capability gap against Python trafilatura, and worth stating in the README so nobody arrives expecting XML-TEI. Gotcha: Markdown is derived from `content_html`, so requesting Markdown still yields `None` on the paths that null out the HTML.
-- **Scheduler strategy** — effectively decided by the numbers. The crate's own README reports ~71 files/s (≈14–22 ms/document) against a ~1 ms NIF budget: 10–20x over on the *common* case. That means a **dirty CPU scheduler**. A yielding NIF isn't implementable against this API anyway — extraction is one straight-line call with no re-entry points.
+- **Input type** — settled. `extract(html: &str, opts: &Options)` takes a `&str` and
+  **never fetches**. Network code (`reqwest`) exists only behind the `cli` feature,
+  which we will not enable. A URL-fetching layer is purely our choice to add or omit.
+- **Metadata as a separate call** — settled, and not in our favour. One call returns
+  content and metadata together. Callers pay for both regardless.
+- **Output shape** — one `ExtractResult` carries `content_text`, `comments_text`,
+  `content_html`, `comments_html`, all `String`, all populated simultaneously. Format
+  is not a mode. **Empty string means absent**, not `Option` — mapping that onto
+  Elixir `nil` is our job. Same for most of `Metadata`, where only `date` is an
+  `Option`. **No XML and no JSON output** — a real capability gap against Python
+  trafilatura, worth stating in the README so nobody arrives expecting XML-TEI.
+- **Markdown is a method behind a feature flag.** `content_markdown()` /
+  `comments_markdown()`, gated on the `markdown` feature, derived from the
+  corresponding `*_html` field. Since those fields are plain `String` and always
+  populated, there is no "requested Markdown, got nothing" trap.
+- **No truncation.** The crate has no `max_extracted_len` and never truncates output.
+  If we want a size cap it is entirely ours to impose — and doing it in Elixir on
+  binaries is both easy and safer than a byte-indexed cut in Rust.
+- **Everything public is `#[non_exhaustive]`** — `ExtractResult`, `Metadata`,
+  `TrafilaturaError`. We cannot exhaustively match on them, and upstream can add
+  fields or variants in a minor release. The Elixir binding must tolerate that:
+  build result maps field-by-field, and make the error mapping total with a
+  catch-all.
+- **Scheduler strategy** — decided, and now on measured rather than vendor data.
+  Mean 4.84 ms/document (p50 3.93, p99 19.5) against a ~1 ms NIF budget; **915 of 925
+  real documents exceed it**. That means a **dirty CPU scheduler**. A yielding NIF
+  isn't implementable against this API anyway — extraction is one straight-line call
+  with no re-entry points.
 
-  Two caveats on the evidence. The 14–22 ms is the crate's self-reported figure, not measured on our hardware; the conclusion survives being wrong by a lot, but a benchmark over a real corpus is what would actually settle it. And the crate's stress test allowing 60 s for a 10 MB input is a **CI headroom allowance, not a measurement** — it says nothing about real cost and shouldn't be cited as if it did.
+  What follows is a constraint, not yet a design: extraction is **uninterruptible**
+  and occupies one of a **bounded, VM-wide** pool of threads (default: core count). A
+  caller who gives up waiting does not free the thread. Nothing bounds how *long* a
+  call runs; only how *many* we hold concurrently is controllable, and only by us
+  putting a limiter in front. Whether a library should impose one by default is open.
 
-  What follows from the dirty scheduler is a constraint, not yet a design: extraction is **uninterruptible** and occupies one of a **bounded, VM-wide** pool of threads (default: core count). A caller who gives up waiting does not free the thread. Nothing can bound how *long* a call runs; only how *many* we hold concurrently is controllable, and only by us putting a limiter in front. Whether a library should impose one by default is open.
-- **Error representation** — settled by evidence, and it's the surprising one. The public `extract*` functions return `Result`, but **never construct `Err` in 0.2.2**. A page with no detectable main content comes back `Ok` with `content_text: ""` and an explanatory entry in `warnings`. The `Error` enum has four variants (`ParseError`, `EncodingError`, `NoContent`, `ExtractionError`) and is effectively vestigial on this path.
+- **Error representation** — settled, and unlike the rejected crate this is a real
+  contract. `extract` returns `Result<ExtractResult, TrafilaturaError>` and genuinely
+  constructs errors. Five of seven variants are reachable in the current code:
 
-  So "nothing extracted" is genuinely success-with-nothing, exactly as this document guessed — but it's success because the crate declines to fail, not because it distinguishes the cases. **This is a version-pinned observation, not a stable contract**: nothing in the crate's API or docs promises it, and a future release could start returning `Err` without it reading as a breaking change. The Elixir binding should handle `Err` properly even though it is currently unreachable.
+  | Variant | Reachable | Meaning |
+  |---|---|---|
+  | `InsufficientContent { text_len, comment_len, min_output_size, min_output_comment_size }` | yes | nothing worth returning was found |
+  | `MissingMetadata(String)` | yes | `has_essential_metadata` was set and a field was absent |
+  | `LanguageMismatch { expected, got }` | yes | `target_language` was set and did not match |
+  | `DuplicateContent` | yes | body seen before, per the dedup cache |
+  | `TreeTooLarge(usize)` | yes | output exceeded `max_tree_size` |
+  | `ParseError(String)` | no | vestigial in 0.3.0 |
+  | `Io(std::io::Error)` | no | vestigial on this path |
+
+  Note `InsufficientContent` fires on an empty document — "nothing extracted" is a
+  typed error here, not success-with-nothing. That answers a question this document
+  previously had open.
 
 ## Open questions
 
 Genuinely unresolved. Each is an ADR waiting to be written, not a gap to paper over:
 
-- **Which crate to bind.** There are two independent Rust ports. `rs-trafilatura` (the one researched, 0.2.2) has ~3.4k downloads; an unrelated crate published as plain `trafilatura` (0.3.0, `nchapman/trafilatura-rs`) has ~48k — roughly 14x the adoption. The sibling has **not** been evaluated. This should be a deliberate choice, and it invalidates much of the section above if it goes the other way.
-- **How `warnings` surfaces in Elixir.** The crate reports degraded extraction through warnings rather than errors, so discarding them hides real failure. Part of the result map, a separate return value, or a `Logger` call?
-- **Whether to expose empty-extraction as an error.** The crate says `Ok("")`; the Elixir API need not agree. Returning `{:error, :no_content}` may serve callers better than an empty binary they have to test for — but it invents a distinction the crate isn't making.
-- **Truncation.** `max_extracted_len` defaults to 1,000,000 and the crate truncates by byte index (see below). Doing truncation in Elixir on binaries instead sidesteps that entirely.
+- **How errors map to Elixir.** The crate gives five distinct reachable variants with
+  structured payloads. Flatten to `{:error, :insufficient_content}`, or preserve the
+  fields as `{:error, {:insufficient_content, %{text_len: 0, ...}}}`? The former is
+  idiomatic; the latter keeps information the crate went to the trouble of typing.
+  Whatever we pick must stay total — `TrafilaturaError` is `#[non_exhaustive]`.
+- **Empty string vs `nil`.** Most result and metadata fields use `""` for absent.
+  Translating those to `nil` at the boundary is more idiomatic Elixir but invents a
+  distinction the crate isn't making, and `""` is a legitimate extracted value in
+  principle. Decide once and apply uniformly.
+- **Whether to impose a concurrency limiter by default.** See the scheduler note
+  above. Unchanged by the crate switch.
+- **Images.** The crate preserves `<img>` inside `content_html` rather than returning
+  a structured list. If callers want structured image data, we either parse
+  `content_html` in Elixir (Floki) or do not offer it. Measured: 400/925 pages carry
+  at least one image in extracted content.
+- **Whether to pursue time-of-day upstream.** `Metadata.date` is a `NaiveDate`, but
+  the crate parses a full offset-aware timestamp and then discards the time
+  (`dt.date_naive()` in `src/metadata/mod.rs`). Widening this is a small, contributable
+  change rather than a fork. Worth doing if publication *time* matters to us.
 
 ## Safety constraints on the NIF
 
 Non-negotiable, and the reason the research mattered:
 
-- **`catch_unwind` is mandatory.** A Rust panic across the NIF boundary takes down a BEAM scheduler. The crate is otherwise disciplined — `unsafe_code = "forbid"`, `unwrap_used`/`expect_used` both denied, zero `unwrap()` or `panic!` outside test modules — but two reachable panics slip past those lints because neither is an `unwrap`:
-  - `src/extract.rs:1115` — `String::truncate(max_extracted_len)` on a **byte** index; panics when the cut lands mid-character.
-  - `src/extract.rs:278` — `&desc_lower[..desc_lower.len().min(60)]`, also byte-indexed; panics when byte 60 splits a multi-byte character. The `.min(60)` guards the length but not the char boundary. Far easier to trigger than the first, and worth upstreaming a fix.
-- **A panic also leaks state.** The crate keeps a `COMMENTS_ARE_CONTENT` thread-local; a panic can leave it stuck `true`, contaminating later extractions on that same scheduler thread. Catching the unwind is not sufficient on its own — the thread-local needs resetting too.
+- **`catch_unwind` is mandatory.** A Rust panic across the NIF boundary takes down a
+  BEAM scheduler. `trafilatura` is disciplined — no `unsafe`, no thread-locals, no
+  statics with interior mutability, zero compiler warnings, CI runs
+  `clippy -D warnings` — and it bounds every DOM recursion at `MAX_TREE_DEPTH = 500`.
+  But it is not panic-*proven*: `src/metadata/mod.rs:1237` slices `s[..8]` before its
+  own ASCII-digit check, which a multi-byte character straddling byte 8 would split.
+  Wrap the call regardless.
+- **`catch_unwind` is not sufficient on its own, and cannot be.** It does not catch
+  stack overflow or abort. That is exactly why the depth bound matters and why we
+  rejected the alternative crate: no amount of Rust-side care in *our* wrapper can
+  save a NIF from a dependency that recurses without a limit.
+- **Cost is unbounded per call, and we cannot cap it in Rust.** `Options.max_tree_size`
+  looks like a safety valve but is not one for this purpose — it counts children of
+  the *extracted* body and fires *after* the work is done. Any real bound on time or
+  memory has to come from us: limit input size before the call, and/or limit
+  concurrency in front of it.
+- **Verify determinism assumptions hold as we go.** Serial vs. 8-thread extraction
+  over 300 real documents produced byte-identical output, so there is no known
+  cross-call state to contaminate. That is a property of 0.3.0, not a promise.
 
 ## Conventions
 
-- The public module is `ExTrafilatura`. Bound Rust lives behind it; callers shouldn't need to know a NIF is involved to use the library.
-- When naming things in issues, tests, or proposals, use the glossary's terms above. If the concept you need isn't here, that's a signal — either the language is being invented (reconsider) or there's a real gap (note it for `/domain-modeling`).
+- The public module is `ExTrafilatura`. Bound Rust lives behind it; callers shouldn't
+  need to know a NIF is involved to use the library.
+- When naming things in issues, tests, or proposals, use the glossary's terms above.
+  If the concept you need isn't here, that's a signal — either the language is being
+  invented (reconsider) or there's a real gap (note it for `/domain-modeling`).
+- **This project is Apache-2.0**, matching the crate and the whole upstream lineage
+  (Rust `trafilatura` → `go-trafilatura` → Python trafilatura are all Apache-2.0).
+  It was briefly dual MIT/Apache-2.0, inherited from the rejected sibling crate;
+  that was dropped because a NIF statically links its dependencies, so binary
+  distributions must satisfy Apache-2.0 regardless — a source-level MIT option would
+  have been one binary users could not exercise. Bundled-dependency terms, including
+  four MPL-2.0 crates, are in `THIRD-PARTY-NOTICES.md`.
