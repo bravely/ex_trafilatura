@@ -1,6 +1,9 @@
 ExTrafilatura
 Copyright 2026 Jake Demarest-Mays
 
+Licensed under either of Apache License 2.0 or the MIT License, at your
+option. This NOTICE applies when the Apache License 2.0 terms are chosen.
+
 This product contains rs-trafilatura (https://github.com/Murrough-Foley/rs-trafilatura),
 Copyright Murrough Foley, licensed under either of Apache License 2.0 or the
 MIT License, at your option. Precompiled builds of this package link

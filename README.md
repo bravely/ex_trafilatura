@@ -61,9 +61,15 @@ problems should go.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE). rs-trafilatura is Copyright
-Murrough Foley under `MIT OR Apache-2.0`; attribution for it and for the
-upstream Python project is recorded in [NOTICE](NOTICE).
+Licensed under either of [Apache License 2.0](LICENSE-APACHE) or
+[MIT License](LICENSE-MIT) at your option, matching rs-trafilatura.
+
+Unless you state otherwise, any contribution you intentionally submit for
+inclusion in this project shall be dual licensed as above, without additional
+terms or conditions.
+
+Attribution for rs-trafilatura and the upstream Python project is recorded in
+[NOTICE](NOTICE).
 
 [trafilatura]: https://github.com/adbar/trafilatura
 [rs-trafilatura]: https://github.com/Murrough-Foley/rs-trafilatura
