@@ -156,6 +156,22 @@ fn encode_result<'a>(env: Env<'a>, r: &ExtractResult) -> Term<'a> {
 
     // The outer result map, with the metadata map nested under `:metadata`.
     // This is the term Elixir finally sees as the second element of `{:ok, _}`.
+    //
+    // Why this is four one-liners plus all the ceremony above: the four
+    // text/html fields are plain `String`s, and Rustler knows how to turn a
+    // `String` into an Erlang binary, so `.encode(env)` is the whole job. The
+    // fifth field is a 15-field `Metadata` struct with no such conversion
+    // available, which is why it had to be hand-built into a nested map first.
+    //
+    // The rule underneath both: every entry here must already be a `Term`. That
+    // is also why `meta` below is inserted *without* `.encode(env)` — it came
+    // back from `map_from_pairs` as a `Term` already, whereas everything else
+    // needs encoding to become one.
+    //
+    // Note we cannot shortcut this with `#[derive(NifStruct)]` or
+    // `impl Encoder for Metadata`: Rust's orphan rule needs us to own either the
+    // trait or the type, and `Encoder` is Rustler's while `Metadata` is
+    // trafilatura's. A newtype wrapper would be the way out in the real binding.
     Term::map_from_pairs(
         env,
         &[
