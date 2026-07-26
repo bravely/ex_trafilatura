@@ -1,0 +1,18 @@
+[package]
+name = "spike_nif"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# THROWAWAY SPIKE — see ../../README.md.
+# Dependency wiring is deliberately the cheapest thing that works: plain
+# crates.io. Choosing how we *actually* carry the crate is a separate ticket.
+
+[lib]
+name = "spike_nif"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.38.0"
+trafilatura = "0.3.0"
