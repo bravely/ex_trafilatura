@@ -3,45 +3,33 @@
 Main content and metadata extraction for web pages — a Rust port of
 [Trafilatura][trafilatura], exposed to Elixir through [Rustler][rustler].
 
-> **Status: early development.** Nothing is implemented yet. The package is not
-> on Hex and there is no usable API. This repository currently exists to hold
-> the port as it gets written.
+> **Status: early development.** Nothing is implemented yet, and the package is
+> not on Hex.
 
 ## What it does
 
-Trafilatura takes the raw HTML of a web page and returns the part a reader
-actually cares about — the article body — along with metadata such as title,
-author, publication date, and site name. It discards navigation, sidebars,
-boilerplate, and ads.
-
-It is one of the strongest performers in published main-content extraction
-benchmarks, which is why it is worth porting rather than reimplementing from
-scratch.
+Given the raw HTML of a page, Trafilatura returns the article body plus
+metadata — title, author, date, site name — and discards navigation, sidebars,
+boilerplate, and ads. It ranks among the best extractors in published
+benchmarks, which is why it's worth porting rather than reimplementing.
 
 ## Why a Rust port
 
-Trafilatura is a Python library. Calling it from Elixir means one of:
+Trafilatura is Python. Calling it from Elixir means shelling out to an
+interpreter, running a sidecar, or embedding Python in the release — each of
+which puts a Python runtime and its dependency tree into every deploy target,
+for what is fundamentally a pure function from HTML to text.
 
-- shelling out to a Python interpreter,
-- running a Python sidecar service, or
-- embedding Python in the release.
-
-All three put a Python runtime, its version constraints, and its dependency
-tree into every deploy target — a lot of operational surface for what amounts
-to a pure function from HTML to text.
-
-Porting the extraction logic to Rust and loading it as a NIF removes that
-entirely: the extractor becomes part of the Elixir release, with no external
-runtime to install, pin, or keep alive.
+As a Rust NIF, the extractor ships inside the Elixir release instead: nothing
+external to install, pin, or keep alive.
 
 ## Relationship to upstream Trafilatura
 
-This is an independent port. It is not affiliated with, endorsed by, or
-maintained by the Trafilatura project.
+An independent port, not affiliated with or endorsed by the Trafilatura
+project.
 
-The goal is behavioural fidelity: given the same HTML and equivalent settings,
-this library should produce the same extraction as upstream Trafilatura. Where
-it diverges, that is a bug in this port unless documented otherwise.
+The goal is behavioural fidelity: same HTML and equivalent settings should
+yield the same extraction as upstream. Undocumented divergence is a bug.
 
 ## Installation
 
@@ -49,23 +37,20 @@ Not yet published to Hex.
 
 ## Development
 
-Requires Elixir and a Rust toolchain. This section will cover the build and
-test workflow once the port is underway.
+Requires Elixir and a Rust toolchain. Build and test instructions will land
+once the port is underway.
 
 ## Contributing
 
-Issues and pull requests are welcome. Because this is a port rather than a new
-design, the most valuable contributions are ones that improve fidelity to
-upstream — failing test cases where extraction differs from Trafilatura's
-output are especially useful.
+Issues and pull requests welcome. Since this is a port rather than a new
+design, the most useful contribution is a failing test case where extraction
+differs from Trafilatura's output.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
-Trafilatura is Copyright Adrien Barbaresi and the Trafilatura contributors,
-and is also Apache-2.0 licensed. The Apache-2.0 attribution requirements this
-port inherits from upstream are recorded in [NOTICE](NOTICE).
+Apache License 2.0 — see [LICENSE](LICENSE). Trafilatura is Copyright Adrien
+Barbaresi and the Trafilatura contributors, also under Apache-2.0; the
+attribution this port inherits is recorded in [NOTICE](NOTICE).
 
 [trafilatura]: https://github.com/adbar/trafilatura
 [rustler]: https://github.com/rusterlium/rustler
