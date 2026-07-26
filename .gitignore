@@ -22,3 +22,9 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 ex_trafilatura-*.tar
 
+# Claude Code local state: personal settings and scratch worktrees.
+# Nothing here is shared — the agent docs that are meant to be tracked live
+# in docs/agents/. If shared config is added later (e.g. .claude/settings.json
+# or .claude/skills/), un-ignore it with a negation below this line.
+/.claude/
+
