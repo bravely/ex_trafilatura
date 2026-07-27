@@ -283,6 +283,38 @@ Non-negotiable, and the reason the research mattered:
   over 300 real documents produced byte-identical output, so there is no known
   cross-call state to contaminate. That is a property of 0.3.0, not a promise.
 
+## How correctness is verified
+
+Settled in [ADR-0003](docs/adr/0003-verification-posture.md). "Correct" is narrow here:
+the crate's behaviour is the source of truth, so verification proves the *binding*
+faithfully exposes it and that the crate has not silently regressed underneath us — not
+that extraction is good.
+
+Three tiers, separated by what each can fail on and how often it runs:
+
+- **Every push** — a CI job doing `mix format --check-formatted`, `mix test`,
+  `cargo clippy -D warnings` scoped to our NIF crate only, and a **vendor-integrity
+  check** (pristine tarball + `vendor/patches/*.patch` must reproduce
+  `vendor/trafilatura/` exactly). One Ubuntu job, no matrix, no Dialyzer, no Credo.
+  Fixtures are **handwritten minimal HTML only** — no real pages, no golden snapshots of
+  extraction output, since a snapshot asserts on upstream's contract rather than ours
+  and redistributing scraped articles in a Hex package is a licence problem we don't
+  need.
+- **Pre-release and at each re-vendor** — two harnesses in `tools/verify/`. A
+  **differential run** compiles one harness twice, against stock 0.3.0 and against the
+  patched vendor, and diffs the full `ExtractResult` and `Metadata` byte for byte over
+  the 925-page corpus, which is **cloned on demand and never vendored**. And the
+  **adversarial nesting benchmark**, which regenerates the figures ADR-0001 §6 publishes.
+- **Escalation only** — if the differential diff is non-empty, upstream's own
+  `tests/comparison_test.rs` is run against a clone with our patches applied. **F-score
+  below 0.903** (0.01 under the measured 0.913) reopens ADR-0002 §1 rather than being
+  settled on release day.
+
+Deliberately **not** done for v0.1.0: no fuzz pass. A fuzzer over a parser this size
+finds panics with no natural stopping point, and `catch_unwind` plus the error term from
+the error-representation work already bound a panic to one failed call. It reopens if
+panics prove frequent rather than theoretical.
+
 ## Conventions
 
 - The public module is `ExTrafilatura`. Bound Rust lives behind it; callers shouldn't
