@@ -50,8 +50,11 @@ library's job is to expose it idiomatically, not to reimplement or second-guess 
   boilerplate" is the central distinction in this domain; prefer these two terms over
   vaguer ones like "the text" or "junk".
 - **Metadata** — the descriptive fields about a document rather than its body: title,
-  author, date, site name, description, categories, tags, license. Extracted from a
-  mix of meta tags, JSON-LD, OpenGraph, and heuristics over the markup.
+  author, url, hostname, description, sitename, date, categories, tags, license,
+  language, image, page_type. Extracted from a mix of meta tags, JSON-LD, OpenGraph, and
+  heuristics over the markup. Use the crate's spellings — `sitename` is one word. The
+  crate declares two further fields, `id` and `fingerprint`, which it never populates; the
+  binding omits them ([ADR-0006](docs/adr/0006-result-and-error-representation.md) §2).
 - **Comments** — reader comments. A separate extractable stream from main content,
   not boilerplate. Surfaced as `comments_text` / `comments_html`, and **included by
   default**: the crate's option is `exclude_comments` (default `false`), the inverse
@@ -98,12 +101,30 @@ them for us.
   garbage — a named limitation, not a bug.
 - **Metadata as a separate call** — settled, and not in our favour. One call returns
   content and metadata together. Callers pay for both regardless.
-- **Output shape** — one `ExtractResult` carries `content_text`, `comments_text`,
-  `content_html`, `comments_html`, all `String`, all populated simultaneously. Format
-  is not a mode. **Empty string means absent**, not `Option` — mapping that onto
-  Elixir `nil` is our job. Same for most of `Metadata`, where only `date` is an
-  `Option`. **No XML and no JSON output** — a real capability gap against Python
+- **Output shape** — one `ExtractResult` (`src/result.rs:8`) carries `content_text`,
+  `comments_text`, `content_html`, `comments_html`, all `String`, all populated
+  simultaneously — **plus `metadata`, which is a field on it, not a sibling return
+  value.** Format is not a mode. **Empty string means absent**, not `Option` — mapping
+  that onto Elixir `nil` is our job. Same for most of `Metadata`, where only `date` is
+  an `Option`. **No XML and no JSON output** — a real capability gap against Python
   trafilatura, worth stating in the README so nobody arrives expecting XML-TEI.
+
+  **`Metadata` is 15 fields, not the 8 usually cited** (`src/result.rs:55`): title,
+  author, url, hostname, description, sitename, date, categories, tags, id, fingerprint,
+  license, language, image, page_type. Note the crate's spellings — `sitename` is one
+  word, `page_type` is the raw `og:type` / JSON-LD `@type`. **`id` and `fingerprint` are
+  declared and never assigned anywhere in `src`** — `fingerprint` appears exactly once in
+  the whole crate, at its own declaration on `src/result.rs:66`. They are permanently
+  `""`, the same species of finding as `enable_log` below.
+
+  **What v0.1.0 does about it**
+  ([ADR-0006](docs/adr/0006-result-and-error-representation.md)): two nested structs,
+  `%ExTrafilatura.Result{}` holding `%ExTrafilatura.Metadata{}`, exposing 13 of the 15
+  metadata fields with the two dead ones omitted. Absent is `""` on the `Result` streams
+  and `nil` on `Metadata` — one rule per struct, on the same line the glossary draws
+  between main content and metadata. The `"" → nil` mapping happens in Rust at encode
+  time. Note the crate **cannot distinguish empty from absent** — `<title></title>` and
+  no `<title>` both produce `""` — so the mapping destroys no information.
 - **Markdown is a method behind a feature flag.** `content_markdown()` /
   `comments_markdown()`, gated on the `markdown` feature, derived from the
   corresponding `*_html` field. Since those fields are plain `String` and always
@@ -175,19 +196,50 @@ them for us.
   variants are **unreachable by construction** and the binding's error union is three
   variants, not five — see [#10](https://github.com/bravely/ex_trafilatura/issues/10).
 
+  **The three reachable payloads are worth much less than they look.** Confirmed by
+  reading 0.3.0's source with v0.1.0's option set fixed:
+
+  - `InsufficientContent` carries **four constants**. `Config::default()` sets
+    `min_output_size: 1` and `min_output_comment_size: 1` (`src/options.rs:63-64`), and
+    `config` is not exposed, so the guard at `src/lib.rs:245` is
+    `len_text < 1 && len_comments < 1`. It fires only when the document yields **literally
+    zero characters of both streams**, and the payload is always
+    `text_len: 0, comment_len: 0, min_output_size: 1, min_output_comment_size: 1`.
+  - `MissingMetadata(String)` is a **closed set of three** — `"title"`, `"url"`, `"date"`,
+    constructed at `src/lib.rs:163`, `:166`, `:169` and checked in that order. It is an
+    enumeration wearing a string's clothes.
+  - `LanguageMismatch` has **two construction sites with different meanings**.
+    `src/lib.rs:151` is the pre-extraction check on the declared language and sets
+    `got: String::new()` unconditionally; `src/lib.rs:269` carries `language_classifier`'s
+    verdict over the extracted text. So `got == ""` means *could not determine* and
+    `got == "de"` means *determined, and wrong*. Its `expected` is the caller's own
+    `target_language`, echoed back.
+
+  Also note `InsufficientContent` returns **before `ExtractResult` is constructed**, so
+  the already-extracted `meta` is dropped — a page with a title but no article body loses
+  its metadata. That is a real information loss, and it is why "nothing extracted" cannot
+  be normalized to a successful empty result without fabricating one.
+
+  **What v0.1.0 does about it**
+  ([ADR-0006](docs/adr/0006-result-and-error-representation.md)): seven error reasons,
+  generated by one rule — **the term carries exactly what the caller does not already
+  have.** Bare atoms where the payload is constants or an echo, a single-value tagged
+  tuple where it is information:
+
+  ```elixir
+  :input_too_large                            # ADR-0001 §3
+  {:invalid_utf8, non_neg_integer()}          # ADR-0005 §3 — byte offset
+  :insufficient_content
+  {:missing_metadata, :title | :url | :date}
+  {:language_mismatch, String.t() | nil}      # detected language; nil = undetermined
+  {:panic, String.t()}                        # also Logger.error'd
+  {:unknown, String.t()}                      # total catch-all; diagnostic, not contract
+  ```
+
 ## Open questions
 
 Genuinely unresolved. Each is an ADR waiting to be written, not a gap to paper over:
 
-- **How errors map to Elixir.** The crate gives five distinct reachable variants with
-  structured payloads. Flatten to `{:error, :insufficient_content}`, or preserve the
-  fields as `{:error, {:insufficient_content, %{text_len: 0, ...}}}`? The former is
-  idiomatic; the latter keeps information the crate went to the trouble of typing.
-  Whatever we pick must stay total — `TrafilaturaError` is `#[non_exhaustive]`.
-- **Empty string vs `nil`.** Most result and metadata fields use `""` for absent.
-  Translating those to `nil` at the boundary is more idiomatic Elixir but invents a
-  distinction the crate isn't making, and `""` is a legitimate extracted value in
-  principle. Decide once and apply uniformly.
 - **Images.** The crate can preserve `<img>` inside `content_html` rather than
   returning a structured list — but **only when `include_images` is set, and it
   defaults to `false`**, so the stock call strips them. (The 400/925 measurement of
@@ -263,8 +315,16 @@ Non-negotiable, and the reason the research mattered:
   **discards the panic payload**, though — `Err(_) => nif_panicked` — so Elixir gets a
   bare atom with no message, no Rust file:line, and no way to tell which panic fired;
   the message goes to OS stderr via Rust's default hook, which is not `Logger`. A
-  guard of our own is therefore an API choice, not a safety one, and the error term it
-  should produce belongs to the error-representation decision.
+  guard of our own is therefore an API choice, not a safety one.
+
+  **v0.1.0 takes the guard** ([ADR-0006](docs/adr/0006-result-and-error-representation.md)
+  §7): our own `catch_unwind` inside the NIF body downcasts the payload and returns
+  `{:error, {:panic, message}}`, recovering what Rustler discards, and Elixir emits a
+  `Logger.error` on receiving it so a swallowing `_ -> :skip` clause cannot bury a crate
+  bug. The reason is consistency, not safety — a panic triggered by a hostile document off
+  the network is not caller error, and exceptions here mean exactly one thing: you called
+  it wrong. Unwind safety is satisfied rather than asserted: extraction is a pure function
+  over a `&str`, and the spike verified serial and 8-thread runs are byte-identical.
 
   `trafilatura` is disciplined — no `unsafe`, no thread-locals, no statics with
   interior mutability, zero compiler warnings, CI runs `clippy -D warnings` — and it
@@ -326,8 +386,9 @@ Three tiers, separated by what each can fail on and how often it runs:
   settled on release day.
 
 Deliberately **not** done for v0.1.0: no fuzz pass. A fuzzer over a parser this size
-finds panics with no natural stopping point, and `catch_unwind` plus the error term from
-the error-representation work already bound a panic to one failed call. It reopens if
+finds panics with no natural stopping point, and `catch_unwind` plus
+[ADR-0006](docs/adr/0006-result-and-error-representation.md) §7's `{:panic, message}`
+already bound a panic to one failed call — now a logged, attributable one. It reopens if
 panics prove frequent rather than theoretical.
 
 ## Conventions
