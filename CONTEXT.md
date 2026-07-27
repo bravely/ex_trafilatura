@@ -110,11 +110,12 @@ them for us.
   isn't implementable against this API anyway — extraction is one straight-line call
   with no re-entry points.
 
-  What follows is a constraint, not yet a design: extraction is **uninterruptible**
-  and occupies one of a **bounded, VM-wide** pool of threads (default: core count). A
-  caller who gives up waiting does not free the thread. Nothing bounds how *long* a
-  call runs; only how *many* we hold concurrently is controllable, and only by us
-  putting a limiter in front. Whether a library should impose one by default is open.
+  The constraint this creates: extraction is **uninterruptible** and occupies one of
+  a **bounded, VM-wide** pool of threads (default: core count). A caller who gives up
+  waiting does not free the thread. Nothing bounds how *long* a call runs; only how
+  *many* we hold concurrently is controllable, and only by us putting a limiter in
+  front. The posture v0.1.0 takes toward that is settled — see
+  [ADR-0001](docs/adr/0001-resource-safety-posture.md).
 
 - **Error representation** — settled, and unlike the rejected crate this is a real
   contract. `extract` returns `Result<ExtractResult, TrafilaturaError>` and genuinely
@@ -147,8 +148,6 @@ Genuinely unresolved. Each is an ADR waiting to be written, not a gap to paper o
   Translating those to `nil` at the boundary is more idiomatic Elixir but invents a
   distinction the crate isn't making, and `""` is a legitimate extracted value in
   principle. Decide once and apply uniformly.
-- **Whether to impose a concurrency limiter by default.** See the scheduler note
-  above. Unchanged by the crate switch.
 - **Images.** The crate preserves `<img>` inside `content_html` rather than returning
   a structured list. If callers want structured image data, we either parse
   `content_html` in Elixir (Floki) or do not offer it. Measured: 400/925 pages carry
@@ -213,6 +212,15 @@ Non-negotiable, and the reason the research mattered:
   the *extracted* body and fires *after* the work is done. Any real bound on time or
   memory has to come from us: limit input size before the call, and/or limit
   concurrency in front of it.
+
+  **What v0.1.0 does about it** ([ADR-0001](docs/adr/0001-resource-safety-posture.md)):
+  bounds memory and accidents, not time. A 10 MB input-size cap is checked in Elixir
+  before the call, overridable per call via `max_input_bytes` (`:infinity` disables) —
+  the one non-crate key in the API — and exceeding it is an error, never a truncation.
+  **No concurrency limiter ships**, not even opt-in, and there is no structural or
+  depth pre-flight check. Bytes are a weak proxy for time — ~600 KB of nesting
+  measured 20.7 s on one thread — so the tarpit is documented rather than mitigated,
+  and the README says so in full.
 - **Verify determinism assumptions hold as we go.** Serial vs. 8-thread extraction
   over 300 real documents produced byte-identical output, so there is no known
   cross-call state to contaminate. That is a property of 0.3.0, not a promise.
