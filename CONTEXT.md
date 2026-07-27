@@ -84,6 +84,18 @@ them for us.
 - **Input type** — settled. `extract(html: &str, opts: &Options)` takes a `&str` and
   **never fetches**. Network code (`reqwest`) exists only behind the `cli` feature,
   which we will not enable. A URL-fetching layer is purely our choice to add or omit.
+
+  Because it takes a `&str`, the crate has no opinion about bytes and does **no encoding
+  work at all** — unlike Python trafilatura, which owns a detection subsystem the Rust
+  port did not carry over. **What v0.1.0 does about it**
+  ([ADR-0005](docs/adr/0005-utf8-input-contract.md)): the input contract is a UTF-8
+  binary, checked in Elixir with `:unicode.characters_to_binary/3` after ADR-0001's size
+  cap and before the NIF, refused as `:invalid_utf8` with the failing byte offset
+  available. **No detection, no transcoding, no BOM exception, no opt-out.** The caller
+  holds the `Content-Type` charset and we never do, which is both the reason and what the
+  README leads with. Two consequences worth knowing: a UTF-8 BOM is stripped by html5ever
+  already (`discard_bom: true`), and **BOM-less UTF-16 passes the gate** and extracts to
+  garbage — a named limitation, not a bug.
 - **Metadata as a separate call** — settled, and not in our favour. One call returns
   content and metadata together. Callers pay for both regardless.
 - **Output shape** — one `ExtractResult` carries `content_text`, `comments_text`,
