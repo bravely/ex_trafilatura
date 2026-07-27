@@ -4,6 +4,18 @@
 - **Date:** 2026-07-27
 - **Ticket:** [#18 Decide how we verify the binding is correct](https://github.com/bravely/ex_trafilatura/issues/18)
 
+> **Amended by [ADR-0004](0004-distribution-strategy.md).** Two clauses below are no longer
+> current as written:
+>
+> - **§4** specifies one CI job on one Elixir/OTP pair, no matrix. ADR-0004 §5 narrowly
+>   amends this to **two pairs** — the declared floor (Elixir 1.15 / OTP 24, fixed by
+>   [ADR-0007](0007-package-public-presentation.md) §9) and current/current. §4's targets —
+>   Dialyzer, Credo, and combinatorial OTP×Elixir sprawl — are unchanged; its steps simply
+>   run twice.
+> - **§7**'s release gate gains a fourth gating check: ADR-0004 §10 adds a per-artifact
+>   `crate_version/0` smoke test across seven of the eight precompiled targets, because
+>   nothing in §7 can see the binaries built from the source tree it validates.
+
 ## Context
 
 The repository is scaffolding. There is no CI, no NIF, no fixtures — `lib/ex_trafilatura.ex`

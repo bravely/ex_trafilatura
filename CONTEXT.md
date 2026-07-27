@@ -391,6 +391,57 @@ finds panics with no natural stopping point, and `catch_unwind` plus
 already bound a panic to one failed call — now a logged, attributable one. It reopens if
 panics prove frequent rather than theoretical.
 
+## Accepted liabilities and tripwires
+
+Gathered from the seven ADRs' Consequences sections. **Read this before "fixing" any one of
+them.** In isolation several look like oversights; as a set they show one rule holding
+across every ADR — **fix what is cheap and certain, document what is expensive and
+uncertain.** ADR-0002 states the axis explicitly: the distinguishing factor between
+patching the `s[..8]` panic and merely documenting the tarpit is *cost, not severity*.
+
+None of these is a bug to fix before shipping. Each is documented where a caller meets it.
+
+| Liability | Where |
+|---|---|
+| A hostile ~600 KB document pins one dirty scheduler thread for ~20 s. Unmitigated by design; a handful exhausts the pool node-wide. **The strongest candidate for reopening after 0.1.0.** | [ADR-0001](docs/adr/0001-resource-safety-posture.md) |
+| A caller who does not read the README gets no protection, and their first symptom is a node-wide stall with no obvious cause. | [ADR-0001](docs/adr/0001-resource-safety-posture.md) §6 |
+| The 10 MB default will be wrong for someone. `:infinity` and the per-call override are the escape hatch. | [ADR-0001](docs/adr/0001-resource-safety-posture.md) |
+| **BOM-less UTF-16 passes the UTF-8 gate** and extracts to garbage. A named limitation — handling the marked case would advertise support that is false in the likelier one. | [ADR-0005](docs/adr/0005-utf8-input-contract.md) §6 |
+| The motivating caller — piping a raw HTTP response body in — pays a real papercut and must add a transcoding step. | [ADR-0005](docs/adr/0005-utf8-input-contract.md) |
+| `:insufficient_content` discards metadata the crate had already extracted. A page with a title, author and `og:image` but no body returns an error carrying none of it. | [ADR-0006](docs/adr/0006-result-and-error-representation.md) §5 |
+| `{:unknown, _}` absorbs four real variants today — two unreachable by construction, two vestigial. | [ADR-0006](docs/adr/0006-result-and-error-representation.md) §6 |
+| **No fuzz pass.** A panic we have not found degrades to a typed, logged failure on one call. | [ADR-0003](docs/adr/0003-verification-posture.md) §8 |
+| `x86_64-pc-windows-gnu` ships untested — the most likely artifact to be wrong. | [ADR-0004](docs/adr/0004-distribution-strategy.md) §10 |
+| Nerves and 32-bit Pi users are told to install Rust. | [ADR-0004](docs/adr/0004-distribution-strategy.md) §3 |
+| A committed `Cargo.lock` goes stale; a periodic bump is needed so advisories surface between releases rather than at one. | [ADR-0004](docs/adr/0004-distribution-strategy.md) |
+| Verification depends on a network clone of a third-party repository. Mitigated by recording the corpus commit SHA, not eliminated. | [ADR-0003](docs/adr/0003-verification-posture.md) §2 |
+| GitHub Releases is infrastructure, not a convenience. | [ADR-0004](docs/adr/0004-distribution-strategy.md) §1 |
+| We own a vendored dependency, with a standing obligation to check upstream each release and a standing temptation to patch behaviour into it. | [ADR-0002](docs/adr/0002-vendor-the-patched-rust-crate.md) |
+| `exclude_patterns` is a single regex protecting against a gigabyte-scale mistake; if the vendor layout moves, the first symptom is a very large tarball, and the tarball build check will not catch it. | [ADR-0007](docs/adr/0007-package-public-presentation.md) |
+| Publishing the ADRs makes internal reasoning user-facing, including candid statements of accepted liability. | [ADR-0007](docs/adr/0007-package-public-presentation.md) |
+
+### Tripwires
+
+Conditions named in advance rather than settled on release day — the point being that the
+person who meets one argues with a prior decision rather than with their own deadline.
+
+- **F-score below 0.903** reopens [ADR-0002](docs/adr/0002-vendor-the-patched-rust-crate.md)
+  §1, where taking the dependency-bump patch at all was decided.
+- **URL fetching entering scope** reopens
+  [ADR-0005](docs/adr/0005-utf8-input-contract.md) — a fetcher holds the `Content-Type`
+  charset, at which point transcoding is a lookup rather than a guess and §7's argument
+  inverts completely.
+- **Shipping `deduplicate` or `max_tree_size`** gives `DuplicateContent` and `TreeTooLarge`
+  real atoms out of `{:unknown, _}`. In our hands, not upstream's.
+- **A patch making the crate return a partial result instead of `Err`** reopens
+  [ADR-0006](docs/adr/0006-result-and-error-representation.md) §5's metadata loss — and
+  because it changes extraction semantics,
+  [ADR-0002](docs/adr/0002-vendor-the-patched-rust-crate.md) §5 requires its own ADR first.
+- **Panics proving frequent rather than theoretical** reopens the no-fuzz decision.
+- **Upstream shipping PR #2 as 0.3.1** → drop patch `0001`, re-vendor, bump to
+  `+extrafilatura.2`, keep `0002`. **Upstream carrying both** → delete the vendor directory
+  and the `[patch]` block entirely.
+
 ## Conventions
 
 - The public module is `ExTrafilatura`. Bound Rust lives behind it; callers shouldn't

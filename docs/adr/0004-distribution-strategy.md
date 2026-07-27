@@ -4,6 +4,17 @@
 - **Date:** 2026-07-27
 - **Ticket:** [#12 Decide the distribution strategy](https://github.com/bravely/ex_trafilatura/issues/12)
 
+> **Amended and completed by [ADR-0007](0007-package-public-presentation.md).** Two clauses
+> below are no longer current as written:
+>
+> - **§11**'s release sequence gains a step. ADR-0007 §4 inserts a packaged-tarball build
+>   check — `mix hex.build`, unpack, `EX_TRAFILATURA_BUILD=1 mix compile` — immediately
+>   before `mix hex.publish`, converting §2's silent, months-later `files:` omission into a
+>   loud pre-publish failure. Nothing else in §11 changes.
+> - **§5** observes that the OTP floor "exists only in the README and the test matrix" and
+>   never picks a number. ADR-0007 §9 completes it: the floor is **OTP 24**, the oldest
+>   Elixir 1.15 permits, so CI's floor pair is Elixir 1.15 / OTP 24.
+
 ## Context
 
 Precompiled binaries are in scope for v0.1.0 — a user running `mix deps.get` must end
