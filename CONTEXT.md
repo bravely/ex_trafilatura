@@ -299,7 +299,10 @@ Three tiers, separated by what each can fail on and how often it runs:
   Fixtures are **handwritten minimal HTML only** — no real pages, no golden snapshots of
   extraction output, since a snapshot asserts on upstream's contract rather than ours
   and redistributing scraped articles in a Hex package is a licence problem we don't
-  need.
+  need. Because `extract/1` is defined to equal `Options::default()`, expectations can
+  be borrowed from upstream's **inline-HTML** unit tests (`metadata_unit_test.rs`,
+  `elements_test.rs`, `html_processing_test.rs`) — a source for fixtures, not a porting
+  project, and distinct from its real-page suites.
 - **Pre-release and at each re-vendor** — two harnesses in `tools/verify/`. A
   **differential run** compiles one harness twice, against stock 0.3.0 and against the
   patched vendor, and diffs the full `ExtractResult` and `Metadata` byte for byte over
