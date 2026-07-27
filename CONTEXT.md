@@ -99,6 +99,27 @@ them for us.
 - **No truncation.** The crate has no `max_extracted_len` and never truncates output.
   If we want a size cap it is entirely ours to impose — and doing it in Elixir on
   binaries is both easy and safer than a byte-indexed cut in Rust.
+- **The options surface is 18 fields plus a nested `Config` of 7** — far wider than
+  the handful usually cited, and **three of its knobs do not do what they say**.
+  Confirmed by reading 0.3.0's source:
+
+  - `enable_log` is declared and settable but **never read anywhere in `src`**. It is
+    a pure no-op.
+  - `html_date_mode` has four variants, but only `Disabled` is ever branched on
+    (`metadata/mod.rs:358`). `Default`, `Fast`, and `Extensive` are behaviourally
+    identical, and the crate's own doc comment admits `Extensive` is "not yet
+    implemented".
+  - `deduplicate` is documented as "cross-document duplicate detection via LRU
+    cache", but the cache is constructed **per call** (`lib.rs:147`), so it cannot
+    span documents. It does intra-document paragraph dedup only.
+
+  **Defaults are all-off.** `Options` derives `Default`, so `enable_fallback`,
+  `include_links`, `include_images`, `exclude_comments`, `exclude_tables`,
+  `deduplicate`, and `has_essential_metadata` are every one of them `false`, and
+  `max_tree_size` is `None`. Note this deviates from Python trafilatura, which
+  defaults fallback **on**. The v0.1.0 binding matches the crate's defaults, not
+  Python's — see [#11](https://github.com/bravely/ex_trafilatura/issues/11).
+
 - **Everything public is `#[non_exhaustive]`** — `ExtractResult`, `Metadata`,
   `TrafilaturaError`. We cannot exhaustively match on them, and upstream can add
   fields or variants in a minor release. The Elixir binding must tolerate that:
@@ -126,14 +147,21 @@ them for us.
   | `InsufficientContent { text_len, comment_len, min_output_size, min_output_comment_size }` | yes | nothing worth returning was found |
   | `MissingMetadata(String)` | yes | `has_essential_metadata` was set and a field was absent |
   | `LanguageMismatch { expected, got }` | yes | `target_language` was set and did not match |
-  | `DuplicateContent` | yes | body seen before, per the dedup cache |
-  | `TreeTooLarge(usize)` | yes | output exceeded `max_tree_size` |
+  | `DuplicateContent` | opt-in | body seen before, per the dedup cache |
+  | `TreeTooLarge(usize)` | opt-in | output exceeded `max_tree_size` |
   | `ParseError(String)` | no | vestigial in 0.3.0 |
   | `Io(std::io::Error)` | no | vestigial on this path |
 
   Note `InsufficientContent` fires on an empty document — "nothing extracted" is a
   typed error here, not success-with-nothing. That answers a question this document
   previously had open.
+
+  **Two of the five are gated behind an option that is off by default.**
+  `TreeTooLarge` is constructed only at `lib.rs:237`, inside
+  `if let Some(max_tree) = opts.max_tree_size`; `DuplicateContent` only at
+  `lib.rs:259`, inside `if opts.deduplicate`. Neither option ships in v0.1.0, so both
+  variants are **unreachable by construction** and the binding's error union is three
+  variants, not five — see [#10](https://github.com/bravely/ex_trafilatura/issues/10).
 
 ## Open questions
 
@@ -148,10 +176,12 @@ Genuinely unresolved. Each is an ADR waiting to be written, not a gap to paper o
   Translating those to `nil` at the boundary is more idiomatic Elixir but invents a
   distinction the crate isn't making, and `""` is a legitimate extracted value in
   principle. Decide once and apply uniformly.
-- **Images.** The crate preserves `<img>` inside `content_html` rather than returning
-  a structured list. If callers want structured image data, we either parse
-  `content_html` in Elixir (Floki) or do not offer it. Measured: 400/925 pages carry
-  at least one image in extracted content.
+- **Images.** The crate can preserve `<img>` inside `content_html` rather than
+  returning a structured list — but **only when `include_images` is set, and it
+  defaults to `false`**, so the stock call strips them. (The 400/925 measurement of
+  pages carrying at least one image in extracted content was taken with the option
+  on.) If callers want structured image data, we either parse `content_html` in
+  Elixir (Floki) or do not offer it.
 - **Whether to pursue time-of-day upstream, or vendor it.** `Metadata.date` is a
   `NaiveDate`, but the crate parses a full offset-aware timestamp and then discards
   the time (`dt.date_naive()` in `src/metadata/mod.rs`). The case for contributing is
