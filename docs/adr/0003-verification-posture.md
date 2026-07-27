@@ -74,6 +74,11 @@ surfaces. It also needs input HTML only — no ground truth, no scoring code. If
 dependency bump turns out to be output-neutral across 925 pages, the entire
 accuracy-drift concern closes in one run and no scoring infrastructure is ever built.
 
+Both sides run `Options::default()`, which
+[#11](https://github.com/bravely/ex_trafilatura/issues/11) §6 defines `extract/1` to
+equal — so the diff measures precisely the call path our callers take, not a
+neighbouring configuration.
+
 The asymmetry is understood and accepted: a diff says *whether* output moved, not
 whether the move is an improvement. Judging that is what escalation is for (§7).
 
@@ -102,9 +107,10 @@ HTML pinning a boundary **this library owns**:
 
 | What it pins | Source |
 |---|---|
-| All five reachable `TrafilaturaError` variants map as decided | [#10](https://github.com/bravely/ex_trafilatura/issues/10) |
+| The three reachable `TrafilaturaError` variants — `InsufficientContent`, `MissingMetadata`, `LanguageMismatch` — map as decided, plus ADR-0001's Elixir-originated oversized-input error | [#10](https://github.com/bravely/ex_trafilatura/issues/10) |
 | `""` → `nil` (or not) applied uniformly | [#10](https://github.com/bravely/ex_trafilatura/issues/10) |
-| Every exposed option reaches the crate and has an observable effect | [#11](https://github.com/bravely/ex_trafilatura/issues/11) |
+| Each of the 13 exposed option keys reaches the crate and has an observable effect; unknown keys are ignored and invalid values raise `ArgumentError` | [#11](https://github.com/bravely/ex_trafilatura/issues/11) |
+| `extract/1` equals `trafilatura::extract(html, &Options::default())` | [#11](https://github.com/bravely/ex_trafilatura/issues/11) §6 |
 | `max_input_bytes` fires before the NIF call, and errors rather than truncates | [ADR-0001](0001-resource-safety-posture.md) §1–3 |
 | Non-UTF-8 input behaves as decided | [#14](https://github.com/bravely/ex_trafilatura/issues/14) |
 | Patch `0002` regression — `<meta property="article:published_time" content="1234567é9">` no longer panics | [ADR-0002](0002-vendor-the-patched-rust-crate.md) §1 |
@@ -121,6 +127,17 @@ Three reasons real pages stay out:
   `test-files/` sitting in an Apache-2.0 repository does not license the scraped
   articles themselves. Cloning them for a local run is one thing; redistributing them
   inside a package we publish to Hex is another.
+
+**Expectations may be borrowed from upstream's unit tests, and this is not a
+contradiction.** [#11](https://github.com/bravely/ex_trafilatura/issues/11) §6 defines
+`extract/1` to equal `trafilatura::extract(html, &Options::default())` exactly, so any
+expectation drawn from the crate's own tests transfers unchanged. Upstream's
+`metadata_unit_test.rs`, `elements_test.rs` and `html_processing_test.rs` are inline
+synthetic HTML against `Options::default()` — the fixture style this section admits,
+unlike `comparison_test.rs` and `realworld_test.rs`, which are the real-page suites it
+excludes. **This is a source for fixtures, not a porting project:** where a handwritten
+fixture needs an expectation, take upstream's rather than inventing one. Translating
+their suite wholesale would test the crate rather than the binding.
 
 The accepted cost: nothing on every push proves the binding works end-to-end on
 realistic input. The boundary spike
@@ -277,11 +294,14 @@ error-representation work or in real usage.
   once precompiled binaries exist, CI's `mix test` must be forced to build from source,
   or the test job silently validates a downloaded artifact instead of the tree it is
   testing.
-- **[#10](https://github.com/bravely/ex_trafilatura/issues/10),
-  [#11](https://github.com/bravely/ex_trafilatura/issues/11) and
+- **[#10](https://github.com/bravely/ex_trafilatura/issues/10) and
   [#14](https://github.com/bravely/ex_trafilatura/issues/14) each acquire a test
   obligation** rather than only an API decision: whatever they settle has to be
   expressible as a handwritten fixture, since §3 admits no other kind.
+  [#11](https://github.com/bravely/ex_trafilatura/issues/11) resolved during this
+  ticket and already meets it — its 13 keys, its unknown-key and invalid-value rules,
+  and its `extract/1` equivalence are all fixture-expressible, and the equivalence is
+  what lets §1 and §3 borrow from the crate's own expectations.
 - **ADR-0002's unmeasured-drift consequence is now carried, not closed.** It stays open
   until the differential run happens; what changes is that the instrument, the threshold,
   and the escalation path are fixed in advance rather than improvised at release.
