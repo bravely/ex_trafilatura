@@ -1,3 +1,9 @@
+// MODIFIED BY THE EXTRAFILATURA PROJECT (Apache-2.0 §4(b) notice)
+//
+// This is not the file published as `trafilatura` 0.3.0 on crates.io. Changed:
+// `fast_parse_date` guarded a byte slice with a byte-length check, so a
+// multi-byte character straddling byte 8 panicked. See ../../VENDOR.md.
+
 // Port of go-trafilatura/metadata.go
 
 pub mod json_ld;
@@ -1234,7 +1240,7 @@ fn fast_parse_date(s: &str) -> Option<chrono::NaiveDate> {
     }
 
     // 3. Try YYYYMMDD without separator (first 8 chars all digits).
-    if s.len() >= 8 && s[..8].chars().all(|c| c.is_ascii_digit()) {
+    if s.len() >= 8 && s.as_bytes()[..8].iter().all(u8::is_ascii_digit) {
         if let (Ok(y), Ok(m), Ok(d)) = (
             s[..4].parse::<i32>(),
             s[4..6].parse::<u32>(),
