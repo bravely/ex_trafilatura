@@ -10,7 +10,10 @@ publish = false
 # The registry range we consider ourselves bound to. The patch entry below wins
 # over any matching published version, so upstream shipping 0.3.1 does not
 # silently move us off the vendored copy (ADR-0002 §3).
-trafilatura = { version = "0.3", default-features = false }
+#
+# The crate declares no default features, so `cli` — and the reqwest and clap
+# tree behind it — stays off without our saying anything (ADR-0004 §1).
+trafilatura = "0.3"
 
 [patch.crates-io]
 trafilatura = { path = "vendor/trafilatura" }

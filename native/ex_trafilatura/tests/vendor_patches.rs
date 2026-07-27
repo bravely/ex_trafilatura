@@ -7,7 +7,7 @@
 use trafilatura::{extract, Options};
 
 /// `1234567é9` puts a two-byte `é` across byte 8 — the boundary
-/// `parse_date_string` slices at when it tests for a bare `YYYYMMDD` date.
+/// `fast_parse_date` slices at when it tests for a bare `YYYYMMDD` date.
 /// Attacker-reachable, since the value comes from a meta tag in an untrusted
 /// document. Fixed by `0002-fix-char-boundary-panic.patch`.
 const PUBLISHED_TIME_SPLITTING_A_CHARACTER: &str = r#"<!DOCTYPE html>

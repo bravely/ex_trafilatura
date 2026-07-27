@@ -6,11 +6,7 @@
 # Fetch the tarball, check it against the sha256 in VENDOR.md, apply the patches
 # in order, drop what we do not vendor, and diff. Empty diff or fail.
 #
-# The failure mode this exists to catch is quiet: someone fixes something by
-# editing vendor/trafilatura/src/ directly without updating the .patch file.
-# Everything builds, tests pass, VENDOR.md still looks right, and the rot
-# surfaces months later at the exact moment we re-vendor onto a new upstream
-# release — where the patch files *are* the mechanism (ADR-0003 §5).
+# tools/verify/README.md says what this is for and when it runs.
 
 set -euo pipefail
 
@@ -21,8 +17,6 @@ patch_dir="$vendor_dir/patches"
 vendor_md="$crate_dir/VENDOR.md"
 
 crate_name=trafilatura
-crate_version=0.3.0
-tarball_url="https://static.crates.io/crates/$crate_name/$crate_name-$crate_version.crate"
 
 # What we vendor, as VENDOR.md describes it. Everything else the tarball carries
 # is dropped before the diff.
@@ -36,10 +30,23 @@ fail() {
   exit 1
 }
 
-# The digest lives in VENDOR.md so there is exactly one place to read it from and
-# one place to change it when we re-vendor.
-expected_sha=$(sed -n 's/^| sha256 | `\([0-9a-f]\{64\}\)` |.*$/\1/p' "$vendor_md")
-[ -n "$expected_sha" ] || fail "no sha256 found in $vendor_md"
+for tool in curl tar git diff sed; do
+  command -v "$tool" >/dev/null 2>&1 ||
+    fail "$tool is not installed; that is a missing tool, not a provenance failure"
+done
+
+# The version and the digest live in VENDOR.md so there is exactly one place to
+# read them from and one place to change them when we re-vendor.
+read_vendor_md() {
+  local value
+  value=$(sed -n "s/^| $1 | \`\{0,1\}\($2\)\`\{0,1\} |.*\$/\1/p" "$vendor_md")
+  [ -n "$value" ] || fail "no '$1' row found in $vendor_md"
+  printf '%s\n' "$value"
+}
+
+crate_version=$(read_vendor_md 'Upstream version' '[0-9][0-9.]*')
+expected_sha=$(read_vendor_md 'sha256' '[0-9a-f]\{64\}')
+tarball_url="https://static.crates.io/crates/$crate_name/$crate_name-$crate_version.crate"
 
 # -P because git apply refuses to touch a path reached through a symlink, and on
 # macOS $TMPDIR is one.
@@ -78,8 +85,11 @@ shopt -u nullglob
 for patch in "${patches[@]}"; do
   echo "vendor-integrity: applying $(basename "$patch")"
   # git apply rather than patch(1): it refuses fuzz, so a patch that no longer
-  # describes the file it claims to is a failure rather than a near miss.
-  git apply --directory="$rebuilt" --unsafe-paths -p1 "$patch" ||
+  # describes the file it claims to is a failure rather than a near miss. The
+  # two -c overrides keep the rebuilt tree byte-identical to the tarball on a
+  # machine whose git is configured to rewrite line endings.
+  git -c core.autocrlf=false -c core.eol=lf \
+    apply --directory="$rebuilt" --unsafe-paths -p1 "$patch" ||
     fail "$(basename "$patch") does not apply to the pristine tarball"
 done
 

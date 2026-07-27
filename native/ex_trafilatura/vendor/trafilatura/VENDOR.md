@@ -57,6 +57,14 @@ Applied in order, from `../patches/`:
 | `0001-bump-deps-upstream-pr-2.patch` | `ego-tree` 0.10→0.11, `html5ever` 0.36→0.39, `scraper` 0.25→0.26, `tendril` 0.4→0.5, fixing an `unwrap()` on `None` in `dom::tree::remove`. Also carries the `+extrafilatura.1` version marker. | issue [#1](https://github.com/nchapman/trafilatura-rs/issues/1), PR [#2](https://github.com/nchapman/trafilatura-rs/pull/2) |
 | `0002-fix-char-boundary-panic.patch` | `fast_parse_date` sliced `s[..8]` behind a byte-length guard, so a multi-byte character straddling byte 8 panicked. Reachable from a meta tag in an untrusted document. | not reported upstream as of 2026-07-27; reporting it is [#40](https://github.com/bravely/ex_trafilatura/issues/40) |
 
+**Patch `0001` moves this crate's own dependency edge and nothing else.**
+`justext` and `libreadability` — the external fallback extractors — pin
+`ego-tree` 0.10, `scraper` 0.25 and `html5ever` 0.36 themselves, so a build
+links both stacks; `cargo tree` shows the pair. The panic upstream #1 reports is
+in this crate's `dom::tree::remove`, which now uses 0.11, so the fix holds.
+Whether the fallback path can reach the same defect through its own copy is
+unexamined.
+
 Both patched files — `Cargo.toml` and `src/metadata/mod.rs` — carry a
 modification notice at the top. That is an Apache-2.0 §4(b) obligation, since
 precompiled builds distribute this modified work in object form.
@@ -74,10 +82,11 @@ tools/verify/vendor-integrity.sh
 
 It re-fetches the tarball, checks it against the sha256 above, applies the
 patches in order, and diffs the result against this directory. Empty diff or
-fail. It runs on every push, because the failure mode it catches is someone
-editing `src/` here without updating the patch file — quiet until the moment
-someone tries to re-vendor onto a new upstream release, which is when the patch
-files are the mechanism.
+fail, on every push. What it is guarding against, and why it runs that often,
+is in [`tools/verify/README.md`](../../../../tools/verify/README.md).
+
+It reads the version and the sha256 out of the table above, so those rows are
+load-bearing rather than decorative.
 
 ## Re-vendoring
 
