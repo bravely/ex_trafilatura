@@ -22,6 +22,9 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 ex_trafilatura-*.tar
 
+# Where cargo writes the NIF crate's build artifacts. Cargo.lock is tracked.
+/native/ex_trafilatura/target/
+
 # Claude Code local state: personal settings and scratch worktrees.
 # Nothing here is shared — the agent docs that are meant to be tracked live
 # in docs/agents/. If shared config is added later (e.g. .claude/settings.json
