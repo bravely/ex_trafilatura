@@ -181,28 +181,56 @@ Checked 2026-07-26. This bears on any plan that routes through upstream.
   `extract` → `extract_document` → `doc_cleaning` → `strip_elements` →
   `dom::tree::remove`. The reporter noted the repo "doesn't seem to have permission
   set up for external contributors."
+- **A second panic exists that upstream does not know about.** The `s[..8]`
+  char-boundary slice in `src/metadata/mod.rs:1237` (see the safety constraints below)
+  is attacker-reachable and, as of 2026-07-27, has no upstream issue or PR. We report
+  it, without waiting on it.
 
 **What this means for us.** Assume upstream will not merge our changes on any useful
-timescale. Plan to carry patches ourselves — a `[patch.crates-io]` entry or a
-vendored fork — rather than blocking on a PR. Verified locally: PR #2's bump applies
-cleanly to 0.3.0 with **no source changes** and the crate builds and tests green
-against it, so mitigating the panic is cheap and we should do it from the start.
+timescale. Carry patches ourselves rather than blocking on a PR. Verified locally:
+PR #2's bump applies cleanly to 0.3.0 with **no source changes** and the crate builds
+and tests green against it, so mitigating the panic is cheap and we do it from the
+start.
+
+**How v0.1.0 carries them** ([ADR-0002](docs/adr/0002-vendor-the-patched-rust-crate.md)):
+a patched copy of the crate is **vendored in-tree** at
+`native/ex_trafilatura/vendor/trafilatura/` (`Cargo.toml` + `src/` + `LICENSE`, ~455 KB)
+and referenced through `[patch.crates-io]`, carrying both fixes — PR #2's bumps and
+our own one-line char-boundary fix. Both need modified crate source, since the bumps
+are semver-incompatible and no lockfile can produce them. Provenance is pinned by a
+`0.3.0+extrafilatura.1` version marker, a `VENDOR.md` recording the upstream tarball's
+sha256, and the patches kept as files. Bug fixes land freely; **anything changing
+extraction or metadata semantics needs its own ADR first.**
 
 The time-of-day widening is a larger patch (a type change through ~8 signatures plus
 `result.rs`, `options.rs`, and the UniFFI mapping) and is worth opening upstream on
-principle — but design for it landing in our own tree.
+principle — but design for it landing in our own tree. That tree now exists: it would
+go in the vendor directory as a further patch. Because it changes metadata semantics
+rather than fixing a bug, ADR-0002 requires it to carry its own ADR first — and it is
+out of scope for v0.1.0.
 
 ## Safety constraints on the NIF
 
 Non-negotiable, and the reason the research mattered:
 
-- **`catch_unwind` is mandatory.** A Rust panic across the NIF boundary takes down a
-  BEAM scheduler. `trafilatura` is disciplined — no `unsafe`, no thread-locals, no
-  statics with interior mutability, zero compiler warnings, CI runs
-  `clippy -D warnings` — and it bounds every DOM recursion at `MAX_TREE_DEPTH = 500`.
-  But it is not panic-*proven*: `src/metadata/mod.rs:1237` slices `s[..8]` before its
-  own ASCII-digit check, which a multi-byte character straddling byte 8 would split.
-  Wrap the call regardless.
+- **`catch_unwind` buys failure *shape*, not survival.** This document previously said
+  it was mandatory because a panic across the boundary takes down a BEAM scheduler.
+  The boundary spike disproved that: **Rustler 0.38 already wraps every NIF body in
+  `catch_unwind`** (`rustler-0.38.0/src/codegen_runtime.rs`), so a panic surfaces as
+  `** (ErlangError) Erlang error: :nif_panicked` and the VM carries on. Rustler
+  **discards the panic payload**, though — `Err(_) => nif_panicked` — so Elixir gets a
+  bare atom with no message, no Rust file:line, and no way to tell which panic fired;
+  the message goes to OS stderr via Rust's default hook, which is not `Logger`. A
+  guard of our own is therefore an API choice, not a safety one, and the error term it
+  should produce belongs to the error-representation decision.
+
+  `trafilatura` is disciplined — no `unsafe`, no thread-locals, no statics with
+  interior mutability, zero compiler warnings, CI runs `clippy -D warnings` — and it
+  bounds every DOM recursion at `MAX_TREE_DEPTH = 500`. But it is not panic-*proven*:
+  `src/metadata/mod.rs:1237` slices `s[..8]` before its own ASCII-digit check. That was
+  listed here as a hypothesis; the spike confirmed it is **real and attacker-reachable**
+  from a meta tag value. We patch it — see
+  [ADR-0002](docs/adr/0002-vendor-the-patched-rust-crate.md).
 - **`catch_unwind` is not sufficient on its own, and cannot be.** It does not catch
   stack overflow or abort. That is exactly why the depth bound matters and why we
   rejected the alternative crate: no amount of Rust-side care in *our* wrapper can
