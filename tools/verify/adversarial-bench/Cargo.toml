@@ -1,0 +1,34 @@
+[package]
+name = "adversarial-bench"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+publish = false
+
+[[bin]]
+name = "adversarial-bench"
+path = "src/main.rs"
+
+[dependencies]
+# The vendored tree by path, not through the NIF crate's `[patch.crates-io]`.
+# The figure this emits describes the crate we ship, and this is the same
+# directory `tools/verify/vendor-integrity.sh` proves is the tarball plus our
+# patches. Reaching it through a second patch table would be a second thing to
+# keep in sync, which is the rot ADR-0003 §5 already exists to catch.
+trafilatura = { path = "../../../native/ex_trafilatura/vendor/trafilatura" }
+
+# Stamps the run date onto the emitted block. Already in the crate's own tree,
+# so it costs no build time.
+chrono = { version = "0.4", features = ["clock"] }
+
+[dev-dependencies]
+# Only to prove the generator's load-bearing assumption: that unclosed `<div>`s
+# nest in the parsed tree rather than being auto-closed. Same version the crate
+# resolves, so the test measures the parser the benchmark runs against.
+scraper = "0.26"
+
+# `crate-comparison.md`'s method: release builds with debug symbols. Kept so a
+# profile someone reads a flame graph from is the profile the figure came from.
+[profile.release]
+debug = true

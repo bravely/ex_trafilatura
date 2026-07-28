@@ -10,14 +10,7 @@ implement.
 | `vendor-integrity.sh` | Is `native/ex_trafilatura/vendor/trafilatura/` exactly the published tarball plus our patches? | every push | yes |
 | `drift.sh` | Did the patched crate's output move? | pre-release, re-vendor | yes, with an escalation |
 | `escalate.sh` | If it moved, is the move acceptable? | only when `drift.sh` reports a diff | yes |
-
-One more tool belongs here and is not built yet:
-
-- **The adversarial nesting benchmark**
-  ([#34](https://github.com/bravely/ex_trafilatura/issues/34)) — regenerates the
-  depth-versus-wall-clock figure the README publishes. Pre-release and at each
-  re-vendor, never in CI, and it produces a number rather than passing or
-  failing.
+| `adversarial-bench/` | What does the nesting tarpit cost, in wall clock? | pre-release, re-vendor — **never CI** | no, it *produces* a figure |
 
 ## `vendor-integrity.sh`
 
@@ -192,3 +185,85 @@ Fallback" is 0.913. So the tripwire sits *at* our baseline rather than 0.01
 below it, and the 0.01 band ADR-0003 §7 describes is not the margin it reads
 like. That is a question for ADR-0002 rather than for this script, which gates
 on the row our callers actually get.
+
+## `adversarial-bench/`
+
+```sh
+cd tools/verify/adversarial-bench && cargo run --release
+```
+
+Generates nesting-adversarial HTML at a range of depths, times
+`trafilatura::extract` on each, and emits a markdown block on stdout. Progress
+goes to stderr, so the block is pasteable as-is. Needs no network and no corpus:
+the input is generated, which is why this is the one pre-release tool that runs
+from a clean checkout with nothing fetched.
+
+Takes about three minutes at the defaults, nearly all of it the depth-100,000
+row. `--depths` and `--repeats` narrow it while investigating; `--help` lists
+them.
+
+### It produces a figure. It does not pass or fail.
+
+Nothing in it asserts a threshold, and **it is deliberately not in CI**. Wall
+clock on a shared runner is noise, and a benchmark that fails spuriously gets
+muted within a month (ADR-0003 §6). It runs pre-release and at each re-vendor.
+
+**If the figure has moved, amend [ADR-0001] §6 and the project README's
+`## Resource safety` section in place, and ship.** ADR-0001 is not superseded:
+its posture explicitly survives the numbers moving either way, so only the
+figure changes. It becomes a decision point only if the tarpit has got
+dramatically worse in a way that reopens ADR-0001 §4 or §5.
+
+That is the whole reason this is standing infrastructure rather than a
+scratchpad someone ran once. ADR-0001 §6 puts a concrete figure in a document we
+publish, and ADR-0002 §5's re-vendor cadence moves the ground under it every
+time. A published number with no reproducible way to regenerate it decays into
+folklore, and the person who has to update it after the next re-vendor is a
+stranger reading `VENDOR.md`.
+
+### The method, and why each part of it is fixed
+
+| | |
+|---|---|
+| Input | `<div>\n` repeated — unclosed `<div>`s, one per line |
+| Options | `Options::default()`, which `extract/1` is defined to equal |
+| Stack | 8 MiB per extraction thread |
+| Reported | median of 5, with the fastest-to-slowest spread beside it |
+
+**Unclosed `<div>`s, at six bytes per level.** `<div>` has no auto-close rule
+against another `<div>`, so the parser nests them and the tag stream and the
+parsed tree agree on the depth — `<p>` or `<li>` would auto-close and flatten
+the tree to depth 1. A unit test pins that, because it is the assumption the
+whole measurement rests on and it is invisible in the output if it breaks.
+
+Six bytes per level is also what makes the emitted sizes comparable with the
+published ones: ADR-0001 pairs depth 20,000 with ~120 KB and depth 100,000 with
+~600 KB, which is exactly this shape. There is no text payload for the same
+reason — the published figures were measured against bare nested `<div>`s, and
+adding content would emit numbers that are not comparable with the ones this
+exists to regenerate.
+
+**8 MiB is the stack the published figures were measured on**, and it is a
+constant rather than a flag: a benchmark whose stack size varies per run emits
+numbers that cannot be compared with the ones it is meant to replace.
+
+**Run it on an idle machine.** The `range` column is there to make contamination
+visible rather than let it average into the figure — measured on a busy laptop,
+depth 20,000 reported a 1.0 s median over a 708 ms–1.5 s spread, and 604 ms over
+601–611 ms once the machine was idle. A wide range means re-run it, not publish
+it.
+
+### Two things the number does not say
+
+**It is not the stack a NIF call gets.** ERTS sizes dirty scheduler stacks far
+smaller than 8 MiB, so these figures describe how expensive the crate is, not
+how deep a document the BEAM survives. The README's claim is about cost, and
+that is what this measures.
+
+**An `Err InsufficientContent` outcome is not a failed run.** The crate's own
+depth guard declines documents nested this far, and the wall clock is what it
+costs to reach that conclusion. The time is spent whether or not anything comes
+back, which is precisely why ADR-0001 §5 rejects a pre-flight check: the work
+happens before anything can decline it.
+
+[ADR-0001]: ../../docs/adr/0001-resource-safety-posture.md
