@@ -6,7 +6,19 @@ rust-version = "1.85"
 license = "Apache-2.0"
 publish = false
 
+[lib]
+name = "ex_trafilatura"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
 [dependencies]
+rustler = "0.38"
+
+# Only to reach `Datelike` on the `NaiveDate` the crate hands back, so
+# `Metadata.date` can be encoded as an Elixir `%Date{}`. Semver-compatible with
+# the crate's own range, so both resolve to one chrono.
+chrono = { version = "0.4", default-features = false }
+
 # The registry range we consider ourselves bound to. The patch entry below wins
 # over any matching published version, so upstream shipping 0.3.1 does not
 # silently move us off the vendored copy (ADR-0002 §3).

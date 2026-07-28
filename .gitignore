@@ -25,6 +25,9 @@ ex_trafilatura-*.tar
 # Where cargo writes the NIF crate's build artifacts. Cargo.lock is tracked.
 /native/ex_trafilatura/target/
 
+# Where Rustler copies the compiled NIF. Built, never committed.
+/priv/native/
+
 # Claude Code local state: personal settings and scratch worktrees.
 # Nothing here is shared — the agent docs that are meant to be tracked live
 # in docs/agents/. If shared config is added later (e.g. .claude/settings.json
