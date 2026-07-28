@@ -113,7 +113,31 @@ property of *the vendored state* (ADR-0003 §9). Each entry records the date, th
 upstream commit SHA the corpus came from, pages compared, the diff result, and
 the F-score if escalation triggered.
 
-*No run yet.* The differential harness is
-[#33](https://github.com/bravely/ex_trafilatura/issues/33), and it gates the
-v0.1.0 release: patch `0001` swaps the HTML parser under an extraction library
-measured at F-score 0.913, and that drift is currently **unmeasured**.
+The harness is [`tools/verify/drift.sh`](../../../../tools/verify/drift.sh); its
+README says what a non-empty diff obliges.
+
+| Date | Corpus SHA | Pages | Diff | F-score |
+|---|---|---|---|---|
+| 2026-07-28 | `cea192557fc7437fb3a54dbafe495d2e9ec10788` | 1076 | **empty** — byte-identical | not triggered |
+
+**Patch `0001` is output-neutral.** Stock crates.io 0.3.0 and this vendored copy
+produced byte-identical `ExtractResult` and `Metadata` — all four content
+streams and all fifteen metadata fields — across all 1076 pages of upstream's
+`test-files/`. Both sides extracted 1050 pages, returned an error on the same
+26, and panicked on none.
+
+That is the "empty diff → ship" branch of ADR-0003 §7: the accuracy-drift
+concern ADR-0002 §1 left open **closes**, and no scoring infrastructure was
+needed to close it. Escalation did not trigger, so the F-score column is empty
+by design rather than unmeasured.
+
+The corpus SHA is upstream `main`, which is `v0.3.7` — the corpus is input HTML
+and is deliberately taken at whatever upstream currently has, since both sides
+are handed the same pages. It is not a statement about what we vendor, which is
+still 0.3.0.
+
+**Upstream has moved a long way and this table does not say otherwise.**
+`v0.3.1` through `v0.3.7` are tagged, and PR #2 is still open. What the
+re-vendor section above obliges is unchanged and still outstanding
+([#39](https://github.com/bravely/ex_trafilatura/issues/39) carries it into the
+release checklist).
