@@ -1,0 +1,47 @@
+Fix the char-boundary panic in fast_parse_date
+
+`src/metadata/mod.rs` tests for a bare `YYYYMMDD` date by taking `s[..8]` behind
+a `s.len() >= 8` guard. `len()` counts bytes and the slice indexes bytes, but a
+multi-byte character straddling byte 8 makes that slice split it, and slicing a
+`&str` off a char boundary panics:
+
+    <meta property="article:published_time" content="1234567é9">
+    end byte index 8 is not a char boundary; it is inside 'é' (bytes 7..9)
+
+The value comes from a meta tag in an untrusted document, so this is reachable
+by anyone who can choose the page we are asked to extract.
+
+Comparing the first eight *bytes* against ASCII digits is what the surrounding
+code already means: the three slices inside the branch — `s[..4]`, `s[4..6]`,
+`s[6..8]` — are only sound because those bytes are digits, which the check now
+establishes directly. Behaviour is otherwise unchanged. A string whose first
+eight bytes are not all ASCII digits took the false branch before and takes it
+now; the only difference is that it no longer panics on the way there.
+
+Ours, not upstream's — nobody had reported this as of 2026-07-27. Reporting it
+is https://github.com/bravely/ex_trafilatura/issues/40; this patch does not wait
+on that.
+
+diff --git a/src/metadata/mod.rs b/src/metadata/mod.rs
+index f0d7a2d..efd6a4d 100644
+--- a/src/metadata/mod.rs
++++ b/src/metadata/mod.rs
+@@ -1,3 +1,9 @@
++// MODIFIED BY THE EXTRAFILATURA PROJECT (Apache-2.0 §4(b) notice)
++//
++// This is not the file published as `trafilatura` 0.3.0 on crates.io. Changed:
++// `fast_parse_date` guarded a byte slice with a byte-length check, so a
++// multi-byte character straddling byte 8 panicked. See ../../VENDOR.md.
++
+ // Port of go-trafilatura/metadata.go
+ 
+ pub mod json_ld;
+@@ -1234,7 +1240,7 @@ fn fast_parse_date(s: &str) -> Option<chrono::NaiveDate> {
+     }
+ 
+     // 3. Try YYYYMMDD without separator (first 8 chars all digits).
+-    if s.len() >= 8 && s[..8].chars().all(|c| c.is_ascii_digit()) {
++    if s.len() >= 8 && s.as_bytes()[..8].iter().all(u8::is_ascii_digit) {
+         if let (Ok(y), Ok(m), Ok(d)) = (
+             s[..4].parse::<i32>(),
+             s[4..6].parse::<u32>(),

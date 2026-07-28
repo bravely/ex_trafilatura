@@ -1,0 +1,19 @@
+[package]
+name = "ex_trafilatura"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+# The registry range we consider ourselves bound to. The patch entry below wins
+# over any matching published version, so upstream shipping 0.3.1 does not
+# silently move us off the vendored copy (ADR-0002 §3).
+#
+# The crate declares no default features, so `cli` — and the reqwest and clap
+# tree behind it — stays off without our saying anything (ADR-0004 §1).
+trafilatura = "0.3"
+
+[patch.crates-io]
+trafilatura = { path = "vendor/trafilatura" }
