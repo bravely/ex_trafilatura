@@ -44,7 +44,13 @@ defmodule ExTrafilatura.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:rustler, "~> 0.38.0", runtime: false},
+      {:rustler_precompiled, "~> 0.9.0"},
+      # Optional, and that is the point: a user on one of ADR-0004 §3's eight
+      # targets downloads an artifact and never resolves this. It is only needed
+      # by the opt-in source build, which is the recourse for everyone else
+      # (ADR-0004 §2) — and by this repository's own CI, which forces the build
+      # so `mix test` exercises the working tree rather than a download.
+      {:rustler, "~> 0.38.0", optional: true, runtime: false},
 
       # Validates `ExTrafilatura.extract/2`'s option keyword list against the
       # schema in `ExTrafilatura.Options`. A runtime dependency, and part of the
