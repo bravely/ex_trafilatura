@@ -154,10 +154,11 @@ impl From<Focus> for ExtractionFocus {
 /// the crate's docs.
 ///
 /// Every field is optional, and `None` means the caller did not name the key.
-/// That is what keeps `extract/1` the crate's default call: an unnamed key is
-/// never assigned at all, so an empty keyword list leaves `Options::default()`
-/// untouched rather than rebuilding it out of defaults of ours that could drift
-/// from it. `no_overrides_is_the_crates_default_call` below is the proof.
+/// That is what keeps `extract/1` the crate's default call: an unnamed key
+/// resolves to whatever `Options::default()` already holds, so an empty keyword
+/// list cannot rebuild the crate's defaults out of values of ours that could
+/// drift from them. `no_overrides_is_the_crates_default_call` below is the
+/// proof.
 #[derive(NifMap)]
 struct Overrides {
     focus: Option<Focus>,
@@ -190,38 +191,27 @@ impl Overrides {
     fn apply(self) -> Result<Options, rustler::Error> {
         let mut options = Options::default();
 
-        if let Some(focus) = self.focus {
-            options.focus = focus.into();
-        }
-        if let Some(exclude_comments) = self.exclude_comments {
-            options.exclude_comments = exclude_comments;
-        }
-        if let Some(exclude_tables) = self.exclude_tables {
-            options.exclude_tables = exclude_tables;
-        }
-        if let Some(include_links) = self.include_links {
-            options.include_links = include_links;
-        }
-        if let Some(include_images) = self.include_images {
-            options.include_images = include_images;
-        }
-        if let Some(enable_fallback) = self.enable_fallback {
-            options.enable_fallback = enable_fallback;
-        }
-        if let Some(target_language) = self.target_language {
-            options.target_language = Some(target_language);
-        }
-        if let Some(has_essential_metadata) = self.has_essential_metadata {
-            options.has_essential_metadata = has_essential_metadata;
-        }
-        if let Some(original_url) = self.original_url {
-            options.original_url = Some(Url::parse(&original_url).or(Err(rustler::Error::BadArg))?);
-        }
-        if let Some(prune_selector) = self.prune_selector {
-            options.prune_selector = Some(prune_selector);
-        }
-        if let Some(excluded_authors) = self.excluded_authors {
-            options.excluded_authors = excluded_authors;
+        // `unwrap_or`, so that an unnamed key writes the crate's own default
+        // back over itself rather than a value of ours. The crate's field name
+        // stays on the left of every line, which is the property worth keeping
+        // greppable — a macro over the twelve would be shorter and would lose
+        // it.
+        options.focus = self.focus.map_or(options.focus, Focus::into);
+        options.exclude_comments = self.exclude_comments.unwrap_or(options.exclude_comments);
+        options.exclude_tables = self.exclude_tables.unwrap_or(options.exclude_tables);
+        options.include_links = self.include_links.unwrap_or(options.include_links);
+        options.include_images = self.include_images.unwrap_or(options.include_images);
+        options.enable_fallback = self.enable_fallback.unwrap_or(options.enable_fallback);
+        options.target_language = self.target_language.or(options.target_language);
+        options.has_essential_metadata = self
+            .has_essential_metadata
+            .unwrap_or(options.has_essential_metadata);
+        options.prune_selector = self.prune_selector.or(options.prune_selector);
+        options.excluded_authors = self.excluded_authors.unwrap_or(options.excluded_authors);
+
+        // The two that can fail, and so the two that cannot be an assignment.
+        if let Some(url) = self.original_url {
+            options.original_url = Some(Url::parse(&url).or(Err(rustler::Error::BadArg))?);
         }
         if let Some((year, month, day)) = self.html_date_override {
             let date = NaiveDate::from_ymd_opt(year, month, day).ok_or(rustler::Error::BadArg)?;

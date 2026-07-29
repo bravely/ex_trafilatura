@@ -375,10 +375,19 @@ defmodule ExTrafilatura.OptionsTest do
       end
     end
 
-    test "something that is not a keyword list at all raises" do
-      for opts <- [%{focus: :balanced}, [:focus], "focus"] do
+    test "something that is not a list at all raises" do
+      # A map is the likely mistake here, and the one worth a message.
+      for opts <- [%{focus: :balanced}, "focus", :focus] do
         assert_raise ArgumentError, fn -> ExTrafilatura.extract(@article, opts) end
       end
+    end
+
+    test "a list that is not a keyword list names no options, as it does to Keyword.get/3" do
+      # The consequence of building the map from the twelve known keys rather
+      # than from what the caller passed: a list we can find no key in is the
+      # same as an empty one. Pinned because it is a silent outcome, not
+      # because it is a good one to rely on.
+      assert ExTrafilatura.extract(@article, [:focus]) == ExTrafilatura.extract(@article)
     end
 
     test "the message names the key that was wrong" do
