@@ -49,23 +49,33 @@ defmodule ExTrafilatura.Native.Target do
 
   def supported?(target), do: target in @targets
 
-  @doc false
   # `false` unless asked, which is the whole of ADR-0004 §2. The argument is not
   # that source builds are slow — it is where the failure lands. A developer on
   # an unlisted target with Rust installed would get a silent source build here
   # and the same hard failure later, inside the toolchain-free deploy container.
   #
-  # Pre-releases are the exception, and enforcing that is ours rather than
-  # inherited: ADR-0004 §2 says any `0.1.0-rc.N` is a source build for everyone,
-  # but `RustlerPrecompiled.Config` only treats `"dev" in Version.parse!/1.pre`
-  # as a pre-release, so an `-rc.N` would go looking for an artifact.
-  def force_build?(version, env_value \\ System.get_env(@build_env)) do
-    pre_release?(version) or env_value in ["1", "true"]
+  # `sources` is every way a source build can be asked for, already read by the
+  # caller so this stays pure. It is a list rather than one env var because
+  # passing `force_build:` explicitly to `use RustlerPrecompiled` makes *us* the
+  # authority on all of them: its own resolution of `force_build_all` and of
+  # `config :rustler_precompiled, :force_build` sits behind a `Keyword.put_new/3`
+  # that our value has already filled. Miss one here and it is simply dead, and
+  # ADR-0004 §2 promises `RUSTLER_PRECOMPILED_FORCE_BUILD_ALL=1` "works globally".
+  #
+  # Pre-releases are the exception that needs no asking, and enforcing that is
+  # ours rather than inherited: ADR-0004 §2 says any `0.1.0-rc.N` is a source
+  # build for everyone, but `RustlerPrecompiled.Config` only treats
+  # `"dev" in Version.parse!/1.pre` as a pre-release, so an `-rc.N` would go
+  # looking for an artifact.
+  def force_build?(version, sources \\ []) do
+    pre_release?(version) or Enum.any?(sources, fn {_source, value} -> requested?(value) end)
   end
+
+  defp requested?(true), do: true
+  defp requested?(value), do: value in ["1", "true"]
 
   defp pre_release?(version), do: Version.parse!(version).pre != []
 
-  @doc false
   # The pre-flight ADR-0004 §11 leaves open. Pinned against rustler_precompiled
   # 0.9.0's source: on an unlisted target `RustlerPrecompiled.target/3` returns
   # `{:error, "precompiled NIF is not available for this target: ..."}` listing
@@ -83,7 +93,6 @@ defmodule ExTrafilatura.Native.Target do
     end
   end
 
-  @doc false
   # The normalized triple, which is what the user needs to see: `:erlang`'s own
   # architecture string is `x86_64-pc-linux-gnu` where the table below says
   # `x86_64-unknown-linux-gnu`, and a message whose target matches no row it
@@ -103,22 +112,26 @@ defmodule ExTrafilatura.Native.Target do
 
   defp system_architecture, do: List.to_string(:erlang.system_info(:system_architecture))
 
-  @doc false
   def unsupported_message(target) do
     """
     ExTrafilatura publishes no precompiled NIF for this target:
 
         #{target}
 
-    Precompiled artifacts exist for these eight targets:
+    Precompiled artifacts exist for these #{length(@targets)} targets:
 
     #{Enum.map_join(@targets, "\n", &"    - #{&1}")}
 
-    To build from source instead, install a Rust toolchain (https://rustup.rs)
-    and set #{@build_env}=1:
+    To build from source instead, add Rustler beside ExTrafilatura in your own
+    mix.exs. Rustler is an optional dependency of this package, so a precompiled
+    user never resolves it and it is not in your tree yet:
 
-        #{@build_env}=1 mix deps.get
-        #{@build_env}=1 mix deps.compile ex_trafilatura
+        {:rustler, ">= 0.0.0", optional: true}
+
+    Then set #{@build_env}=1, which needs a Rust toolchain (https://rustup.rs):
+
+        $ #{@build_env}=1 mix deps.get
+        $ #{@build_env}=1 mix deps.compile ex_trafilatura
 
     The source build is opt-in rather than automatic on purpose. An automatic
     fallback would not remove this failure — it would defer it from your machine

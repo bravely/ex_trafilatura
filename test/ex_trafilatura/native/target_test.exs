@@ -55,7 +55,21 @@ defmodule ExTrafilatura.Native.TargetTest do
 
     test "says a Rust toolchain is needed, since that is the other half of the recourse",
          %{message: message} do
-      assert message =~ "Rust"
+      assert message =~ "rustup.rs"
+    end
+
+    test "names the Rustler dependency line, without which the recourse hits a second wall",
+         %{message: message} do
+      # Rustler is `optional: true` in our mix.exs, so it is not resolved into a
+      # precompiled user's tree. Follow this message without adding it and
+      # rustler_precompiled raises "Rustler dependency is needed to force the
+      # build" instead — a second failure, on the platform where we already had
+      # only one chance to be useful.
+      assert message =~ ~S({:rustler, ">= 0.0.0", optional: true})
+    end
+
+    test "does not claim a target count the list would contradict", %{message: message} do
+      assert message =~ "these #{length(Target.supported())} targets"
     end
   end
 
@@ -103,18 +117,40 @@ defmodule ExTrafilatura.Native.TargetTest do
 
   describe "force_build?/2" do
     test "is off by default: a source build is opt-in, never automatic (ADR-0004 §2)" do
-      refute Target.force_build?("0.1.0", nil)
+      refute Target.force_build?("0.1.0")
+      refute Target.force_build?("0.1.0", ex_trafilatura_build: nil, force_build_all: nil)
     end
 
-    test "is on when the environment variable is set" do
-      assert Target.force_build?("0.1.0", "1")
-      assert Target.force_build?("0.1.0", "true")
+    test "is on when our own environment variable is set" do
+      assert Target.force_build?("0.1.0", ex_trafilatura_build: "1")
+      assert Target.force_build?("0.1.0", ex_trafilatura_build: "true")
+    end
+
+    test "is on for any of rustler_precompiled's own escape hatches" do
+      # ADR-0004 §2 names one of these in the same breath as ours:
+      # "`EX_TRAFILATURA_BUILD=1` enables a source build;
+      # `RUSTLER_PRECOMPILED_FORCE_BUILD_ALL=1` works globally." Because we pass
+      # `force_build:` explicitly, none of them resolve unless we resolve them —
+      # including the config key rustler_precompiled's own error text advertises.
+      assert Target.force_build?("0.1.0", force_build_all_env: "1")
+      assert Target.force_build?("0.1.0", force_build_all: true)
+      assert Target.force_build?("0.1.0", force_build: true)
+    end
+
+    test "takes any one source, not all of them" do
+      assert Target.force_build?("0.1.0",
+               ex_trafilatura_build: nil,
+               force_build_all_env: nil,
+               force_build_all: nil,
+               force_build: true
+             )
     end
 
     test "ignores values that are not the documented ones" do
-      refute Target.force_build?("0.1.0", "0")
-      refute Target.force_build?("0.1.0", "")
-      refute Target.force_build?("0.1.0", "yes")
+      refute Target.force_build?("0.1.0", ex_trafilatura_build: "0")
+      refute Target.force_build?("0.1.0", ex_trafilatura_build: "")
+      refute Target.force_build?("0.1.0", ex_trafilatura_build: "yes")
+      refute Target.force_build?("0.1.0", force_build_all: false)
     end
 
     test "is on for any pre-release, which is ours to enforce rather than inherited" do
@@ -122,9 +158,9 @@ defmodule ExTrafilatura.Native.TargetTest do
       # versions, so any `0.1.0-rc.N` is a source build for everyone." That is
       # not what rustler_precompiled 0.9.0 does — its `pre_release?/1` is
       # `"dev" in Version.parse!(version).pre`, so `-rc.1` would download.
-      assert Target.force_build?("0.1.0-rc.1", nil)
-      assert Target.force_build?("0.1.0-dev", nil)
-      assert Target.force_build?("0.2.0-alpha.3", nil)
+      assert Target.force_build?("0.1.0-rc.1")
+      assert Target.force_build?("0.1.0-dev")
+      assert Target.force_build?("0.2.0-alpha.3")
     end
   end
 
