@@ -6,7 +6,58 @@ defmodule ExTrafilatura do
 
   alias ExTrafilatura.Native
   alias ExTrafilatura.Options
+  alias ExTrafilatura.Panic
   alias ExTrafilatura.Result
+
+  @typedoc """
+  Why a call did not return a result.
+
+  Every term carries exactly what you do not already have: a bare atom where the
+  payload would be constants or an echo of what you passed in, and a tagged
+  tuple where it is information. No reason is a map, and every payload is a
+  single value.
+
+  Listed in the order they are decided. The first two are ours and are settled
+  before the extractor is reached; the rest come back from the crate.
+
+    * `:input_too_large` — `html` was over `max_input_bytes`. See `extract/2`
+      on the input contract, and on why this is never a truncation.
+
+    * `{:invalid_utf8, non_neg_integer()}` — `html` was not UTF-8, and the
+      payload is the byte offset the first invalid sequence starts at. The
+      offending bytes are deliberately not carried: they would be a sub-binary
+      retaining the whole document against garbage collection.
+
+    * `:insufficient_content` — the document yielded no content at all. See
+      `extract/2` on why this is an error rather than an empty result.
+
+    * `{:missing_metadata, :title | :url | :date}` — you set
+      `has_essential_metadata` and the document was without one of the three,
+      checked in that order. The set is closed at three by construction.
+
+    * `{:language_mismatch, String.t() | nil}` — `target_language` was set and
+      the document did not match. The payload is the language that was
+      *detected*, and `nil` means none could be — which happens both when the
+      document's own declaration refused it before extraction ran, and when the
+      classifier could not place the extracted text.
+
+    * `{:panic, String.t()}` — the crate panicked, and the extraction was
+      caught rather than taking your process with it. Also emits a
+      `Logger.error`. This is a bug in the crate; please report it.
+
+    * `{:unknown, String.t()}` — anything else the crate returned, in the
+      crate's own words. **Diagnostic, not contract: never match on the
+      string.** Its content will change without a major version, and a reason
+      that reaches you here today may become a term of its own tomorrow.
+  """
+  @type reason ::
+          :input_too_large
+          | {:invalid_utf8, non_neg_integer()}
+          | :insufficient_content
+          | {:missing_metadata, :title | :url | :date}
+          | {:language_mismatch, String.t() | nil}
+          | {:panic, String.t()}
+          | {:unknown, String.t()}
 
   @doc """
   Extracts the main content and metadata of an HTML document.
@@ -20,19 +71,24 @@ defmodule ExTrafilatura do
   defaults and not Python trafilatura's: the fallback pass is off, and comments
   are included.
 
-  Returns `{:error, reason}` when the crate declines to extract. A page with no
-  article body is one of those cases: "nothing extracted" is an error rather than
-  a successful empty result, because the crate returns before it builds a result
-  and the metadata it had already gathered goes with it — normalising would mean
-  fabricating a result that asserts a titled stub page had no title.
+  Returns `{:error, reason}` when the input is refused or the crate declines to
+  extract, where `reason` is one of `t:reason/0`'s seven terms. A page with no
+  article body is one of those cases: "nothing extracted" is an error rather
+  than a successful empty result, because the crate returns before it builds a
+  result and the metadata it had already gathered goes with it — normalising
+  would mean fabricating a result that asserts a titled stub page had no title.
 
-  > #### Most of the error term is provisional {: .warning}
-  >
-  > The two rejections below are final, and can be matched on today. Everything
-  > the *crate* declines still arrives as `{:error, {:unknown, message}}`, and
-  > that message is **diagnostic, not contract — never match on it**. The
-  > decided set of reasons is seven terms wide; mapping the crate's three
-  > reachable errors onto their own terms is still to come.
+      case ExTrafilatura.extract(html) do
+        {:ok, result} -> result.content_text
+        {:error, :insufficient_content} -> "no article on this page"
+        {:error, reason} -> raise "extraction failed: \#{inspect(reason)}"
+      end
+
+  Two of the seven are the crate saying something went wrong on its own side:
+  `{:panic, message}` is a crate bug, and `{:unknown, message}` is a variant
+  with no term of its own yet. Writing `_ -> :skip` in place of that last clause
+  is the one shape worth avoiding, because it buries both — which is why a
+  `{:panic, _}` also emits a `Logger.error`.
 
   ## The input contract
 
@@ -182,10 +238,7 @@ defmodule ExTrafilatura do
   # and `TreeTooLarge` unreachable by construction, which is why ADR-0006 §4 has
   # three crate-sourced error reasons rather than five. Restoring any of the six
   # is additive; removing one later would not be. Decided in #11.
-  @spec extract(binary(), keyword()) ::
-          {:ok, Result.t()}
-          | {:error,
-             :input_too_large | {:invalid_utf8, non_neg_integer()} | {:unknown, String.t()}}
+  @spec extract(binary(), keyword()) :: {:ok, Result.t()} | {:error, reason()}
   def extract(html, opts \\ []) when is_binary(html) and is_list(opts) do
     {max_input_bytes, overrides} = Options.normalize(opts)
 
@@ -195,7 +248,9 @@ defmodule ExTrafilatura do
     # walks the binary, sits behind it. Neither can mask the other's error.
     with :ok <- within_size_cap(html, max_input_bytes),
          :ok <- valid_utf8(html) do
-      Native.extract(html, overrides)
+      html
+      |> Native.extract(overrides)
+      |> Panic.report()
     end
   end
 

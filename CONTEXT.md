@@ -208,12 +208,16 @@ them for us.
   - `MissingMetadata(String)` is a **closed set of three** — `"title"`, `"url"`, `"date"`,
     constructed at `src/lib.rs:163`, `:166`, `:169` and checked in that order. It is an
     enumeration wearing a string's clothes.
-  - `LanguageMismatch` has **two construction sites with different meanings**.
-    `src/lib.rs:151` is the pre-extraction check on the declared language and sets
-    `got: String::new()` unconditionally; `src/lib.rs:269` carries `language_classifier`'s
-    verdict over the extracted text. So `got == ""` means *could not determine* and
-    `got == "de"` means *determined, and wrong*. Its `expected` is the caller's own
-    `target_language`, echoed back.
+  - `LanguageMismatch` has **two construction sites**, and `got` carries **two different
+    failures** — but the two distinctions do not line up. `src/lib.rs:151` is the
+    pre-extraction check on the declared language and sets `got: String::new()`
+    unconditionally; `src/lib.rs:269` carries `language_classifier`'s verdict over the
+    extracted text, which is *also* `""` when `whatlang` cannot place it and is rejected
+    anyway (`src/lib.rs:266`). So `got == ""` means *could not determine* — from either
+    site — and `got == "de"` means *determined, and wrong*. Its `expected` is the caller's
+    own `target_language`, echoed back. Corrected on
+    [#32](https://github.com/bravely/ex_trafilatura/issues/32); see
+    [ADR-0006](docs/adr/0006-result-and-error-representation.md).
 
   Also note `InsufficientContent` returns **before `ExtractResult` is constructed**, so
   the already-extracted `meta` is dropped — a page with a title but no article body loses
@@ -408,7 +412,7 @@ None of these is a bug to fix before shipping. Each is documented where a caller
 | The 10 MB default will be wrong for someone. `:infinity` and the per-call override are the escape hatch. | [ADR-0001](docs/adr/0001-resource-safety-posture.md) |
 | **BOM-less UTF-16 passes the UTF-8 gate** and extracts to garbage. A named limitation — handling the marked case would advertise support that is false in the likelier one. | [ADR-0005](docs/adr/0005-utf8-input-contract.md) §6 |
 | The motivating caller — piping a raw HTTP response body in — pays a real papercut and must add a transcoding step. | [ADR-0005](docs/adr/0005-utf8-input-contract.md) |
-| `:insufficient_content` discards metadata the crate had already extracted. A page with a title, author and `og:image` but no body returns an error carrying none of it. | [ADR-0006](docs/adr/0006-result-and-error-representation.md) §5 |
+| `:insufficient_content` discards metadata the crate had already extracted. A page with an `og:title`, author and `og:image` but no text anywhere in it returns an error carrying none of it. (Not a `<title>`: the `baseline` pass extracts a title element's own text, so such a page never reaches this error. Corrected on [#32](https://github.com/bravely/ex_trafilatura/issues/32).) | [ADR-0006](docs/adr/0006-result-and-error-representation.md) §5 |
 | `{:unknown, _}` absorbs four real variants today — two unreachable by construction, two vestigial. | [ADR-0006](docs/adr/0006-result-and-error-representation.md) §6 |
 | **No fuzz pass.** A panic we have not found degrades to a typed, logged failure on one call. | [ADR-0003](docs/adr/0003-verification-posture.md) §8 |
 | `x86_64-pc-windows-gnu` ships untested — the most likely artifact to be wrong. | [ADR-0004](docs/adr/0004-distribution-strategy.md) §10 |
