@@ -63,6 +63,15 @@ defmodule ExTrafilatura.Options do
   # for, so there is no branch that could stop ignoring it. A list that is not a
   # keyword list therefore names no options, the same as `[]` — consistent with
   # `Keyword.get/3`, which also finds nothing in one.
+  #
+  # **All twelve keys must be present**, `nil` for the ones the caller did not
+  # name. This is not tidiness: `Overrides` on the Rust side is a
+  # `#[derive(NifMap)]`, whose generated decoder reads every field with
+  # `map_get` and fails if one is absent. `Option` there converts a `nil`
+  # *value* to `None`; it does nothing about a missing *key*. So a map carrying
+  # only what the caller named is an `ArgumentError` from the NIF, with none of
+  # the attribution the errors above carry — which is why `normalize/1` is
+  # `Map.new/2` over `@keys` rather than `Keyword.take/2` over `opts`.
   @spec normalize(keyword()) :: map()
   def normalize(opts) when is_list(opts) do
     Map.new(@keys, fn key ->

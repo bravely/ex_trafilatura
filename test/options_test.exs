@@ -290,6 +290,32 @@ defmodule ExTrafilatura.OptionsTest do
     end
   end
 
+  describe "the map that crosses the boundary" do
+    # `Overrides` on the Rust side is a `#[derive(NifMap)]`, and its generated
+    # decoder reads every field with `map_get`. A key that is merely absent is
+    # not `None` there — it is a decode failure, and it arrives as a bare
+    # `ArgumentError` naming nothing. These two tests are the guard rail on
+    # that: the first pins our obligation, the second pins the consequence of
+    # breaking it, so a future simplification to `Keyword.take/2` fails here
+    # with the reason attached rather than failing everywhere at once.
+
+    test "carries all twelve keys whatever the caller named" do
+      for opts <- [[], [focus: :favor_recall], [nonsense: 1], [:not_a_keyword_list]] do
+        assert map_size(ExTrafilatura.Options.normalize(opts)) == 12
+      end
+    end
+
+    test "is refused by the NIF when a key is missing" do
+      full = ExTrafilatura.Options.normalize([])
+
+      assert {:ok, _} = ExTrafilatura.Native.extract(@article, full)
+
+      assert_raise ArgumentError, fn ->
+        ExTrafilatura.Native.extract(@article, Map.delete(full, :prune_selector))
+      end
+    end
+  end
+
   describe "repeated keys" do
     test "take the first, as Keyword.fetch/2 does" do
       assert ExTrafilatura.extract(@focus, focus: :favor_recall, focus: :balanced) ==
