@@ -1,21 +1,14 @@
 defmodule ExTrafilatura.Options do
   @moduledoc false
-  # Turns a caller's keyword list into the size cap `ExTrafilatura.extract/2`
-  # enforces and the struct the NIF decodes. Callers go through
-  # `ExTrafilatura.extract/2`; nothing here is public API.
+  # Validates a caller's keyword list and splits it in two: the size cap
+  # `ExTrafilatura.extract/2` enforces, and the struct the NIF decodes. Callers
+  # go through `ExTrafilatura.extract/2`; nothing here is public API.
   #
-  # **An unknown key is refused, not ignored.** This reverses #11 §7, which
-  # decided the opposite and accepted the cost in writing: a typo'd
-  # `exclude_comment:` was "undiscoverable except by noticing the wrong output".
-  # That cost was about to grow — #31 added `max_input_bytes`, where a typo
-  # silently reinstates the 10 MB cap the caller meant to raise — and the
-  # reversal was free while nothing had shipped. The price is that a caller
-  # passing a superset of their own config must `Keyword.take/2` first.
-  # Recorded on #11.
-  #
-  # Both refusals raise, because exceptions here mean exactly one thing: you
-  # called it wrong. Nothing that arrives from the network at runtime can reach
-  # this module.
+  # **An unknown key is refused, not ignored**, and so is an invalid value. Both
+  # raise, because exceptions here mean exactly one thing: you called it wrong.
+  # Nothing that arrives from the network at runtime can reach this module. The
+  # price a caller pays is `Keyword.take/2` before passing a superset of their
+  # own config; the reasoning behind charging it is on #11.
   #
   # A key the caller did not name comes out as `nil`, which the Rust side reads
   # as "leave the crate's own default alone". That is what makes `extract/1` the

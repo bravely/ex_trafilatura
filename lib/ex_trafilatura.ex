@@ -220,9 +220,14 @@ defmodule ExTrafilatura do
   # document against garbage collection — up to `max_input_bytes` of it, held
   # alive by a diagnostic (ADR-0005 §3). The offset retains nothing.
   #
-  # `:incomplete` is the same failure arriving from the other end: a multi-byte
-  # sequence cut short by the end of the input rather than by a bad byte in the
-  # middle. Same refusal, and `accepted` measures the same thing.
+  # `:incomplete` is reachable on a binary, and is not a redundant clause. It is
+  # what a **truncated tail** returns — a sequence that is well-formed as far as
+  # it goes and then runs out of input, as in `"abc" <> <<0xE6>>`, the first
+  # byte of a three-byte character and nothing after it. `:error` is a byte that
+  # cannot appear where it does, which includes the last position: `<<0x93>>` at
+  # the end is still `:error`, because no sequence starts with it. So the split
+  # is truncated-vs-invalid rather than end-vs-middle. Both are one refusal to
+  # us, and `accepted` measures the same thing in each.
   defp valid_utf8(html) do
     case :unicode.characters_to_binary(html, :utf8, :utf8) do
       binary when is_binary(binary) -> :ok

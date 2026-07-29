@@ -111,14 +111,36 @@ defmodule ExTrafilatura.InputRejectionTest do
                {:error, {:invalid_utf8, byte_size(@before_the_bad_byte)}}
     end
 
-    test "a sequence truncated at the end of the input refuses at where it starts" do
-      # `characters_to_binary/3` reports this as `:incomplete` rather than
-      # `:error`, and it is the likelier of the two in practice — a document cut
-      # by something upstream of us mid-character. Same refusal, same offset.
-      prefix = "<html><body><p>Cut off mid-character: "
-      html = prefix <> binary_part("é", 0, 1)
+    test "a byte that can open no sequence is invalid even in the last position" do
+      # The other half of the pair with the truncation test below, and the line
+      # between the gate's two branches: a *truncated* tail is incomplete, but
+      # `0x93` starts nothing at all, so running out of input after it changes
+      # nothing. Same refusal either way, which is the point.
+      assert ExTrafilatura.extract(@before_the_bad_byte <> <<0x93>>) ==
+               {:error, {:invalid_utf8, byte_size(@before_the_bad_byte)}}
+    end
 
-      assert ExTrafilatura.extract(html) == {:error, {:invalid_utf8, byte_size(prefix)}}
+    test "a sequence truncated at the end of the input refuses at where it starts" do
+      # A separate branch of the gate: `characters_to_binary/3` calls a
+      # truncated tail `:incomplete`, not `:error`, because the last sequence is
+      # well-formed as far as it goes and simply runs out of input. This is the
+      # document cut mid-character by something upstream of us, and without the
+      # second clause it would raise `CaseClauseError` instead of refusing.
+      # One truncation of each sequence length, since the branch is reached by
+      # running out of bytes rather than by how many are missing.
+      prefix = "<html><body><p>Cut off mid-character: "
+
+      cuts = [
+        binary_part("é", 0, 1),
+        binary_part("日", 0, 1),
+        binary_part("日", 0, 2),
+        binary_part("🤖", 0, 3)
+      ]
+
+      for cut <- cuts do
+        assert ExTrafilatura.extract(prefix <> cut) ==
+                 {:error, {:invalid_utf8, byte_size(prefix)}}
+      end
     end
 
     test "BOM-marked UTF-16 refuses at offset 0, either endianness" do
