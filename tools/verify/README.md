@@ -11,9 +11,12 @@ implement.
 | `drift.sh` | Did the patched crate's output move? | pre-release, re-vendor | yes, with an escalation |
 | `escalate.sh` | If it moved, is the move acceptable? | only when `drift.sh` reports a diff | yes |
 | `adversarial-bench/` | What does the nesting tarpit cost, in wall clock? | pre-release, re-vendor — **never CI** | no, it *produces* a figure |
+| `artifact-smoke.sh` | Does *this built binary* load and answer? | every tag push, once per artifact | yes, before the artifact is attached |
 
-"Every push" means [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml),
-which is the only automated caller of anything here. The other three are run by
+"Every push" means [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)
+and "every tag push" means
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml). Those two
+are the only automated callers of anything here; the middle three are run by
 hand, from the invocations below.
 
 ## `vendor-integrity.sh`
@@ -271,3 +274,83 @@ back, which is precisely why ADR-0001 §5 rejects a pre-flight check: the work
 happens before anything can decline it.
 
 [ADR-0001]: ../../docs/adr/0001-resource-safety-posture.md
+
+## `artifact-smoke.sh`
+
+```sh
+tools/verify/artifact-smoke.sh path/to/libex_trafilatura-v0.1.0-nif-2.15-<target>.so.tar.gz
+```
+
+Loads one built artifact through the path a user's `mix deps.get` takes and calls
+`crate_version/0` on it. Needs Elixir and a `_build` it may overwrite; needs no
+network beyond `mix deps.get`, no Rust, and no corpus. Run from the project root.
+
+It is the one thing
+[ADR-0004](../../docs/adr/0004-distribution-strategy.md) §10 adds to the release
+gate, and it earns its place by being the only check that can see the binaries at
+all: everything else here proves the *source tree* is correct and says nothing
+about the eight artifacts built from it.
+
+**Seven of the eight, labelled partial.** `x86_64-pc-windows-gnu` needs a
+MinGW-built ERTS and has no practical runner, so it ships on the strength of the
+other seven and a successful build — and is, by ADR-0004's own reckoning, the
+artifact most likely to be wrong. That is a good sample rather than a hole,
+because what this catches — bad build config, a missing symbol, a `cdylib` that
+will not load, a name the runtime will never ask for — is overwhelmingly
+target-*independent*.
+
+### Why it takes four commands rather than one
+
+The script is a driver for
+[`artifact_smoke.exs`](artifact_smoke.exs), which runs in two halves around a
+`mix compile`, because the artifact has to be in place before the compile that
+consumes it:
+
+1. `stage!/1` copies the artifact into `RUSTLER_PRECOMPILED_GLOBAL_CACHE_PATH`
+   and writes a checksum file naming that artifact and its bytes.
+2. `mix compile --force` re-runs the macro that resolves the NIF.
+3. `verify!/1` asserts the artifact carries a name the runtime asks for, and that
+   `crate_version/0` answers with the marker `build.rs` compiled into it.
+
+Those two halves are what make the middle step a real test rather than a
+formality. A cache **miss** falls through to a download, and a download of
+anything else — a differently named asset, an older upload under the same name —
+fails the integrity check against the file step 1 wrote. So `mix compile` can
+only succeed if the artifact carries exactly the name and exactly the bytes the
+runtime will ask for at a stranger's compile time. The name in particular is the
+mapping ADR-0004 §6 refuses to reimplement, so `verify!/1` asks
+`RustlerPrecompiled.available_nifs/1` for it rather than reconstructing it.
+
+### The checksum file it writes is a throwaway
+
+`stage!/1` overwrites `checksum-Elixir.ExTrafilatura.Native.exs` in the project
+root, and says so on stderr. That is **not** ADR-0004 §7's committed file, which
+is generated at release time by `mix rustler_precompiled.download` against the
+attached assets. Restore yours with `git checkout --` after a local run.
+
+### A source build would pass every assertion in it
+
+Both `EX_TRAFILATURA_BUILD` and `RUSTLER_PRECOMPILED_FORCE_BUILD_ALL` are unset
+by the script, because either one left over in a shell turns this into a green
+run against a binary it never opened. `verify!/1` then asks
+`ExTrafilatura.Native.Target.force_build?/2` — the same question the compile
+itself asked — about **all four** sources `ExTrafilatura.Native` passes it, since
+the other two are `config :rustler_precompiled` keys that no amount of unsetting
+reaches. A pre-release version, which force-builds for everyone by ADR-0004 §2,
+is rejected here for the same reason, and the message names whichever source
+asked.
+
+### It also looks at the eighth target's name
+
+`verify!/1` checks every artifact sitting *beside* the one under test against the
+names `RustlerPrecompiled.available_nifs/1` will ask for. In the release workflow
+that directory holds all eight, so `x86_64-pc-windows-gnu` — which has no runner
+and so no smoke leg — still gets the one check that matters for a target nobody
+can execute: that its name is one a stranger's `mix deps.get` will resolve. Under
+ADR-0004 §8 a misnamed asset cannot be renamed afterwards, so this is the last
+moment it is catchable.
+
+The check is one-directional. A name that was *not* built is not its question,
+because a maintainer running this by hand has one artifact in the directory
+rather than eight; the release workflow counts to eight separately, where all
+eight are in one place.

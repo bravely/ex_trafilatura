@@ -1,0 +1,301 @@
+name: Release
+
+# A tag produces eight verified artifacts on a GitHub Release, and a broken one
+# is caught *before* it is attached rather than by a user months later.
+#
+# `workflow_dispatch` is the rehearsal: everything up to and including the smoke
+# tests runs, and `attach` does not, because it is gated on a tag ref. That
+# makes "did the build matrix survive the last dependency bump?" answerable
+# without minting a version.
+#
+# Nothing here publishes to Hex. That is ADR-0004 §6 and it is deliberate: full
+# automation needs a write-scoped HEX_API_KEY in CI, which turns every edit to
+# this file — and every action pinned in it — into a path to publishing under
+# the maintainer's name. For a package whose security story is "audit the
+# committed checksum file", that is an odd asymmetry to introduce at v0.1.0.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-24.04
+
+    outputs:
+      version: ${{ steps.mix.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18.x"
+          otp-version: "27.x"
+
+      # Asked of Mix rather than scraped out of mix.exs, because this is the
+      # same value `ExTrafilatura.Native` compiles into both the artifact
+      # filenames and `base_url`. Needs no deps and no compile.
+      - id: mix
+        run: |
+          version=$(mix run --no-start --no-compile --no-deps-check -e 'IO.puts(Mix.Project.config()[:version])')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "mix.exs declares $version"
+
+      # A pre-release force-builds from source for everyone regardless
+      # (ADR-0004 §2), so it has no precompiled artifacts to build and nothing
+      # downstream would ever fetch them. Caught here rather than eight
+      # cross-builds later, where `verify!/1` refuses for the same reason.
+      # Semver puts the pre-release after a `-`, and only there.
+      - name: A pre-release has no artifacts
+        run: |
+          case "${{ steps.mix.outputs.version }}" in
+            *-*)
+              echo "::error::${{ steps.mix.outputs.version }} is a pre-release, which is a source build for everyone (ADR-0004 §2)"
+              exit 1
+              ;;
+          esac
+
+      # A tag that disagrees with mix.exs is the quietest way to ship a broken
+      # release: the assets land under the tag's name while every user resolves
+      # `releases/download/v<mix.exs version>/…`, so `mix deps.get` 404s for
+      # everyone and nothing in the build says why (ADR-0004 §8).
+      - name: The tag must be v<version>
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          expected="v${{ steps.mix.outputs.version }}"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match mix.exs, which declares $expected"
+            exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.job.target }}
+    needs: version
+    runs-on: ${{ matrix.job.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # ADR-0004 §3's eight, in the ADR's own order. One NIF version, 2.15
+        # (§4): NIF versions are backward compatible, so a 2.15 artifact loads
+        # on any ERTS reporting 2.15 or higher, and dirty CPU schedulers — the
+        # one ERTS feature this binding depends on — arrived in 2.7.
+        #
+        # `use-cross` on all four Linux targets, including the host one. Cross
+        # builds inside an old-glibc image, so the artifact's floor is the
+        # image's rather than the runner's: a natively built
+        # x86_64-unknown-linux-gnu would carry ubuntu-22.04's glibc 2.35 and
+        # fail to load on RHEL 9 (2.34) and Debian 11 (2.31), which is most of
+        # what "the default server" means. The musl pair needs cross regardless.
+        job:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04, use-cross: true }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04, use-cross: true }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-22.04, use-cross: true }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-22.04, use-cross: true }
+          - { target: aarch64-apple-darwin, os: macos-15 }
+          - { target: x86_64-apple-darwin, os: macos-15-intel }
+          - { target: x86_64-pc-windows-msvc, os: windows-2022 }
+          - { target: x86_64-pc-windows-gnu, os: windows-2022 }
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.job.target }}
+
+      # The established action rather than a hand-rolled cross matrix
+      # (ADR-0004 §6). What it is actually load-bearing for is the naming: the
+      # target-name-to-artifact-name mapping has to match what
+      # `RustlerPrecompiled` reconstructs at the *user's* compile time, and
+      # reimplementing that is how a release ships eight assets nobody can
+      # fetch. `smoke` proves the mapping held, rather than trusting it.
+      - id: build
+        uses: philss/rustler-precompiled-action@v1.1.5
+        with:
+          project-name: ex_trafilatura
+          project-version: ${{ needs.version.outputs.version }}
+          project-dir: native/ex_trafilatura
+          target: ${{ matrix.job.target }}
+          nif-version: "2.15"
+          use-cross: ${{ matrix.job.use-cross }}
+
+      # Held here rather than attached now. Attaching from the build job would
+      # put an unloadable binary on a public release before anything had tried
+      # to load it, and ADR-0004 §8 means it could not then be taken back.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build.outputs.file-name }}
+          path: ${{ steps.build.outputs.file-path }}
+          if-no-files-found: error
+
+  # ADR-0004 §10. The rest of the release gate proves the *source tree* is
+  # correct and says nothing about the eight binaries built from it, so this is
+  # the only check that can see them at all.
+  #
+  # Seven of eight, labelled partial and not chased: `x86_64-pc-windows-gnu`
+  # needs a MinGW-built ERTS and has no practical runner. That is a good sample
+  # rather than a hole, because what this catches — bad build config, a missing
+  # symbol, a cdylib that will not load, a name the runtime will never ask for —
+  # is overwhelmingly target-independent.
+  smoke:
+    name: Smoke ${{ matrix.job.target }}
+    needs: build
+    runs-on: ${{ matrix.job.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          # Free for public repositories since 2025, which is the only reason
+          # the ARM cloud target is testable at all.
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm }
+          - { target: aarch64-apple-darwin, os: macos-15 }
+          - { target: x86_64-apple-darwin, os: macos-15-intel }
+          - { target: x86_64-pc-windows-msvc, os: windows-2022 }
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18.x"
+          otp-version: "27.x"
+
+      # All eight, not just this leg's. The extra seven cost a few megabytes and
+      # buy the only look anything takes at `x86_64-pc-windows-gnu`'s *name*:
+      # the script checks every artifact beside the one under test against the
+      # names `RustlerPrecompiled` will ask for, so the target with no runner is
+      # still covered for the failure mode that is permanent under ADR-0004 §8.
+      - uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+          path: artifact
+
+      # The glob picks this leg's artifact. A glob rather than a name built here,
+      # because the name is exactly the thing under test — reconstructing it
+      # would mean asserting the mapping against a second copy of itself. No
+      # target's triple appears in another target's filename.
+      #
+      # Through `sh` rather than by executing it: the Windows leg runs this under
+      # git-bash, where the file's executable bit is a guess the filesystem
+      # cannot make. `shell: bash` is for the same leg — everywhere else it is
+      # already the default, and on Windows the default is pwsh.
+      - run: sh tools/verify/artifact-smoke.sh artifact/*-${{ matrix.job.target }}.*
+        shell: bash
+
+  # Same job, one leg per musl target. Split out rather than folded into the
+  # matrix above because a musl artifact only loads on a musl ERTS, which means
+  # an Alpine container — and a container job cannot be turned on for some
+  # matrix legs and off for others. Alpine also has no bash, hence `sh`.
+  smoke-musl:
+    name: Smoke ${{ matrix.job.target }}
+    needs: build
+    runs-on: ${{ matrix.job.os }}
+
+    # Multi-arch, so both legs pull the same tag and get their own architecture.
+    # OTP 27 reports NIF 2.17, which loads a 2.15 artifact — the ordinary user's
+    # situation, not a special case.
+    container: hexpm/elixir:1.18.4-erlang-27.3.4.15-alpine-3.22.5
+
+    defaults:
+      run:
+        shell: sh
+
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-22.04-arm }
+
+    steps:
+      # The image carries Elixir and not much else. Without git, `checkout`
+      # silently falls back to fetching a tarball over the REST API, which works
+      # but is a different code path on two legs out of seven for no reason.
+      - run: apk add --no-cache git
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+          path: artifact
+
+      - run: sh tools/verify/artifact-smoke.sh artifact/*-${{ matrix.job.target }}.*
+
+  attach:
+    name: Attach to the release
+    # Both smoke jobs need `build`, which needs `version`, so the tag-agreement
+    # check and all eight builds are transitively required here.
+    needs: [smoke, smoke-musl]
+    # Tags only. A `workflow_dispatch` run is a rehearsal and must not mint a
+    # release, since ADR-0004 §8 makes a published asset permanent.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifact
+          merge-multiple: true
+
+      - name: All eight, or none
+        run: |
+          count=$(find artifact -maxdepth 1 -name '*.tar.gz' | wc -l)
+          if [ "$count" -ne 8 ]; then
+            echo "::error::expected 8 artifacts, found $count"
+            find artifact -maxdepth 1 -type f
+            exit 1
+          fi
+
+      # The body is where the immutability policy and the manual steps live,
+      # because that is where someone stands when the instinct to re-upload a
+      # bad asset arrives (ADR-0004 §8, §11).
+      #
+      # Published rather than drafted, even though drafting would put a human
+      # between the build and ADR-0004 §8's permanence: a draft release's assets
+      # are not publicly fetchable, and the very next step —
+      # `mix rustler_precompiled.download --all` — reads them over plain HTTP.
+      # Drafting would mean publishing before the checksums exist anyway.
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: artifact/*.tar.gz
+          fail_on_unmatched_files: true
+          body: |
+            Precompiled NIFs for all eight supported targets, NIF version 2.15.
+
+            Seven of the eight were loaded and asked for `crate_version/0` before
+            being attached. `x86_64-pc-windows-gnu` was not: it needs a
+            MinGW-built ERTS and has no practical runner, so it ships on the
+            strength of the other seven and a successful build. The coverage is
+            partial by decision, not by oversight (ADR-0004 §10).
+
+            **These assets are immutable.** `rustler_precompiled` resolves the
+            download URL at the *user's* compile time, so deleting this release,
+            renaming an asset, or re-uploading different bytes each retroactively
+            breaks a working install — and re-uploading also invalidates the
+            committed checksums, turning every downstream `mix deps.get` into a
+            checksum failure for a version the user never changed. A broken
+            artifact gets a new patch version and is never replaced in place
+            (ADR-0004 §8).
+
+            Publishing is manual from here (ADR-0004 §6, §11):
+
+            1. Confirm the every-push suite is green for this tag. It is the rest
+               of ADR-0003 §7's gate and runs in a workflow this one cannot see.
+            2. `mix rustler_precompiled.download ExTrafilatura.Native --all --print`
+            3. Commit `checksum-Elixir.ExTrafilatura.Native.exs`. That commit sits
+               **after** this tag, and the tag is **not** moved to swallow it — a
+               moved tag breaks anyone who already fetched it (ADR-0004 §7).
+            4. Build the tarball, unpack it, and force a source build from it
+               (ADR-0007 §4), then `mix hex.publish`.
