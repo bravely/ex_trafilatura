@@ -17,6 +17,18 @@
 > "wrong language" from "no idea what language". What was wrong was the second reason given
 > for it, and it is corrected in place below.
 
+> **§5's stub page cannot carry a `<title>`, also per
+> [#32](https://github.com/bravely/ex_trafilatura/issues/32).** A document with a `<title>`
+> and no body does **not** return `:insufficient_content` — it extracts successfully, with
+> the title's own text for a body. The crate's last-resort `baseline` pass falls through to
+> the whole document's text content (`src/extraction/baseline.rs:133`), and `<title>` is
+> inside it, so any `<title>` at all is enough content to clear the guard.
+>
+> **The argument in §5 is unchanged**, and so is the limitation it records: a stub page
+> whose metadata is entirely in `<meta>` tags — `og:title`, `og:image`, an author — reaches
+> `:insufficient_content` and loses all of it. Only the illustration was unbuildable, and it
+> is corrected in place below, along with the fixture that Consequences prescribed from it.
+
 ## Context
 
 This is the public return contract: what `ExTrafilatura.extract/2` hands back when it
@@ -277,9 +289,14 @@ result to normalise to. Normalising means **fabricating** one:
 {:ok, %Result{content_text: "", metadata: %Metadata{title: nil, ...}}}
 ```
 
-For a stub page that genuinely carries `<title>`, `og:image` and a JSON-LD author, that
+For a stub page that genuinely carries `og:title`, `og:image` and a JSON-LD author, that
 return value is a lie: it asserts the document had no title when it did.
 `{:error, :insufficient_content}` asserts only that nothing came back, which is true.
+
+The metadata has to be in `<meta>` tags for this page to exist at all, and that is a fact
+about the crate rather than a convenience of the example: a `<title>` element's text is
+itself content the `baseline` pass will extract, so a document carrying one never reaches
+this error. See the correction at the head of this document.
 
 The information loss is real and is recorded as a limitation below, not papered over.
 
@@ -353,12 +370,12 @@ it keeps the Elixir side free of a traversal that exists only to undo something.
 
 - **The every-push suite gains fixtures**, all handwritten minimal HTML and therefore
   inside [ADR-0003](0003-verification-posture.md) §3 without amending it: an empty document
-  asserting `{:error, :insufficient_content}`; a document with `<title>` but no body
-  asserting the same, which **pins §5's limitation** rather than its fix;
-  `has_essential_metadata: true` against documents missing title, url and date in turn,
-  asserting the checking order; `target_language` against both `LanguageMismatch` sites,
-  asserting `nil` where nothing determined a language and a binary where the classifier
-  did — which is a fixture per site, but **not** a claim that the payload identifies the
+  asserting `{:error, :insufficient_content}`; a document whose `og:title`, `og:image` and
+  author are all it carries asserting the same, which **pins §5's limitation** rather than
+  its fix; `has_essential_metadata: true` against documents missing title, url and date in
+  turn, asserting the checking order; `target_language` against both `LanguageMismatch`
+  sites, asserting `nil` where nothing determined a language and a binary where the
+  classifier did — a fixture per site, but **not** a claim that the payload identifies the
   site, per the correction at the head of this document; and a metadata document asserting
   `nil` for absent fields against `""` for present-but-empty streams.
 
@@ -384,9 +401,9 @@ Following [ADR-0005](0005-utf8-input-contract.md) §8 and
 settling it on release day:
 
 > **`:insufficient_content` discards metadata the crate had already extracted.** A page
-> with a title, an author and an `og:image` but no article body returns an error carrying
-> none of it. Recovering it means patching the vendored crate to return a partial result
-> instead of `Err` — which changes extraction semantics, and
+> with an `og:title`, an author and an `og:image` but no text anywhere in it returns an
+> error carrying none of it. Recovering it means patching the vendored crate to return a
+> partial result instead of `Err` — which changes extraction semantics, and
 > [ADR-0002](0002-vendor-the-patched-rust-crate.md) §5 requires its own ADR for that. **This
 > reopens if that patch is ever written**, and it is the strongest candidate we have for
 > one.
