@@ -82,8 +82,6 @@ defmodule ExTrafilatura.Options do
             ]
           )
 
-  @type t :: %__MODULE__{}
-
   # The size cap and the overrides `opts` names, or a
   # `NimbleOptions.ValidationError` naming the key that was wrong. A crate key
   # the caller did not name keeps the struct's `nil`; `max_input_bytes` is
@@ -97,7 +95,6 @@ defmodule ExTrafilatura.Options do
   #
   # `opts` is a keyword list by the time it arrives: `ExTrafilatura.extract/2`
   # guards on it, so the only thing that can raise from here is the schema.
-  @spec normalize(keyword()) :: {pos_integer() | :infinity, t()}
   def normalize(opts) do
     {max_input_bytes, crate_keys} =
       opts
