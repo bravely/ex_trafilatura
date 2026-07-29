@@ -1,0 +1,19 @@
+[package]
+name = "drift-stock"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+# One harness, compiled twice. The source is shared with ../patched/ rather than
+# copied, so the two sides cannot drift from each other and quietly compare
+# different things.
+[[bin]]
+name = "drift-dump"
+path = "../dump.rs"
+
+[dependencies]
+# Exactly the published version we vendored, not the range the NIF crate is
+# bound to. "stock" has to keep meaning 0.3.0 — if upstream ships 0.3.1, this
+# side would silently start measuring against something we never compared.
+trafilatura = "=0.3.0"

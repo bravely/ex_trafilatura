@@ -1,0 +1,22 @@
+[package]
+name = "drift-patched"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.85"
+publish = false
+
+# The same source file ../stock/Cargo.toml compiles. See the note there.
+[[bin]]
+name = "drift-dump"
+path = "../dump.rs"
+
+[dependencies]
+# Deliberately the same requirement and the same patch entry the NIF crate
+# carries, rather than a direct path dependency to the vendored copy. This side
+# is meant to be what we ship: resolving it the way the NIF resolves it means
+# the harness exercises the `[patch.crates-io]` mechanism too, not only the
+# vendored source it happens to point at.
+trafilatura = "0.3"
+
+[patch.crates-io]
+trafilatura = { path = "../../../../native/ex_trafilatura/vendor/trafilatura" }
