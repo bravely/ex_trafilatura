@@ -1,9 +1,9 @@
 defmodule ExTrafilatura.Options do
   @moduledoc false
-  # Turns a caller's keyword list into the twelve-key map the NIF decodes.
-  # Callers go through `ExTrafilatura.extract/2`; nothing here is public API,
-  # and deliberately so — a public `validate_options/1` was considered and
-  # declined along with per-call `Logger` noise (#11 §7).
+  # Turns a caller's keyword list into the struct the NIF decodes. Callers go
+  # through `ExTrafilatura.extract/2`; nothing here is public API, and
+  # deliberately so — a public `validate_options/1` was considered and declined
+  # along with per-call `Logger` noise (#11 §7).
   #
   # Two rules, and they pull in opposite directions on purpose:
   #
@@ -36,6 +36,14 @@ defmodule ExTrafilatura.Options do
     :html_date_override
   ]
 
+  # The shape that crosses the boundary, declared once and compiled rather than
+  # assembled. `Overrides` on the Rust side is a `#[derive(NifStruct)]` naming
+  # this module, and its generated decoder reads every field: a key that is
+  # merely absent is a decode failure there, not a `None`. A struct is what
+  # makes that unreachable — `%__MODULE__{}` compiles to a literal carrying all
+  # twelve, so no code path can produce a short one.
+  defstruct @keys
+
   # The four whose crate field is an `Option`, and so the four for which `nil`
   # is a value the caller may pass rather than a wrong one. On the other eight
   # it is wrong, and saying so is the point of the second rule above —
@@ -55,29 +63,23 @@ defmodule ExTrafilatura.Options do
 
   @focuses [:balanced, :favor_precision, :favor_recall]
 
-  # The twelve-key override map for `opts`, or an `ArgumentError` naming the
-  # first key whose value is wrong.
+  @type t :: %__MODULE__{}
+
+  # The overrides `opts` names, or an `ArgumentError` naming the first key whose
+  # value is wrong. A key the caller did not name keeps the struct's `nil`.
   #
-  # Building the map from `@keys` rather than by walking `opts` is what makes
-  # ignoring an unknown key structural: a key we do not have is never looked
-  # for, so there is no branch that could stop ignoring it. A list that is not a
-  # keyword list therefore names no options, the same as `[]` — consistent with
-  # `Keyword.get/3`, which also finds nothing in one.
-  #
-  # **All twelve keys must be present**, `nil` for the ones the caller did not
-  # name. This is not tidiness: `Overrides` on the Rust side is a
-  # `#[derive(NifMap)]`, whose generated decoder reads every field with
-  # `map_get` and fails if one is absent. `Option` there converts a `nil`
-  # *value* to `None`; it does nothing about a missing *key*. So a map carrying
-  # only what the caller named is an `ArgumentError` from the NIF, with none of
-  # the attribution the errors above carry — which is why `normalize/1` is
-  # `Map.new/2` over `@keys` rather than `Keyword.take/2` over `opts`.
-  @spec normalize(keyword()) :: map()
+  # Reading the keys we know *out of* `opts`, rather than walking `opts` and
+  # skipping what we do not recognise, is what makes ignoring an unknown key
+  # structural: there is no branch that could stop doing it. A list that is not
+  # a keyword list therefore names no options, the same as `[]` — consistent
+  # with `Keyword.get/3`, which also finds nothing in one. `Keyword.fetch/2`
+  # also settles a repeated key on the first, as the `Keyword` functions do.
+  @spec normalize(keyword()) :: t()
   def normalize(opts) when is_list(opts) do
-    Map.new(@keys, fn key ->
+    Enum.reduce(@keys, %__MODULE__{}, fn key, overrides ->
       case Keyword.fetch(opts, key) do
-        {:ok, value} -> {key, cast(key, value)}
-        :error -> {key, nil}
+        {:ok, value} -> %{overrides | key => cast(key, value)}
+        :error -> overrides
       end
     end)
   end

@@ -290,28 +290,29 @@ defmodule ExTrafilatura.OptionsTest do
     end
   end
 
-  describe "the map that crosses the boundary" do
-    # `Overrides` on the Rust side is a `#[derive(NifMap)]`, and its generated
-    # decoder reads every field with `map_get`. A key that is merely absent is
-    # not `None` there — it is a decode failure, and it arrives as a bare
-    # `ArgumentError` naming nothing. These two tests are the guard rail on
-    # that: the first pins our obligation, the second pins the consequence of
-    # breaking it, so a future simplification to `Keyword.take/2` fails here
-    # with the reason attached rather than failing everywhere at once.
-
-    test "carries all twelve keys whatever the caller named" do
+  describe "the struct that crosses the boundary" do
+    test "carries all twelve fields whatever the caller named" do
       for opts <- [[], [focus: :favor_recall], [nonsense: 1], [:not_a_keyword_list]] do
-        assert map_size(ExTrafilatura.Options.normalize(opts)) == 12
+        overrides = ExTrafilatura.Options.normalize(opts)
+
+        assert %ExTrafilatura.Options{} = overrides
+        assert overrides |> Map.from_struct() |> map_size() == 12
       end
     end
 
-    test "is refused by the NIF when a key is missing" do
-      full = ExTrafilatura.Options.normalize([])
+    test "is refused by the NIF if a field goes missing" do
+      # Why the shape is a struct rather than a bare map. `Overrides` on the
+      # Rust side reads every field, so a key that is merely *absent* is a
+      # decode failure there rather than a `None`, and it comes back as a bare
+      # `ArgumentError` naming nothing — none of the attribution the errors
+      # above carry. A struct puts that out of reach: this test has to take a
+      # field back off to reach it at all.
+      overrides = ExTrafilatura.Options.normalize([])
 
-      assert {:ok, _} = ExTrafilatura.Native.extract(@article, full)
+      assert {:ok, _} = ExTrafilatura.Native.extract(@article, overrides)
 
       assert_raise ArgumentError, fn ->
-        ExTrafilatura.Native.extract(@article, Map.delete(full, :prune_selector))
+        ExTrafilatura.Native.extract(@article, Map.delete(overrides, :prune_selector))
       end
     end
   end

@@ -15,7 +15,7 @@
 //! still be attributed to the key that carried it.
 
 use chrono::{Datelike, NaiveDate};
-use rustler::{Atom, Encoder, Env, NifMap, NifStruct, NifUnitEnum, Term};
+use rustler::{Atom, Encoder, Env, NifStruct, NifUnitEnum, Term};
 use trafilatura::{ExtractionFocus, Options};
 use url::Url;
 
@@ -159,7 +159,13 @@ impl From<Focus> for ExtractionFocus {
 /// list cannot rebuild the crate's defaults out of values of ours that could
 /// drift from them. `no_overrides_is_the_crates_default_call` below is the
 /// proof.
-#[derive(NifMap)]
+///
+/// A struct rather than a map, because the derived decoder reads every field
+/// and a merely-absent key is a decode failure rather than a `None`. Elixir's
+/// `%ExTrafilatura.Options{}` cannot be short a field, so that failure is
+/// unreachable instead of merely untested.
+#[derive(NifStruct)]
+#[module = "ExTrafilatura.Options"]
 struct Overrides {
     focus: Option<Focus>,
     exclude_comments: Option<bool>,
