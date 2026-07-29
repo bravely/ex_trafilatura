@@ -12,6 +12,10 @@ implement.
 | `escalate.sh` | If it moved, is the move acceptable? | only when `drift.sh` reports a diff | yes |
 | `adversarial-bench/` | What does the nesting tarpit cost, in wall clock? | pre-release, re-vendor — **never CI** | no, it *produces* a figure |
 
+"Every push" means [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml),
+which is the only automated caller of anything here. The other three are run by
+hand, from the invocations below.
+
 ## `vendor-integrity.sh`
 
 ```sh

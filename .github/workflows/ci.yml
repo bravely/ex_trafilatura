@@ -1,0 +1,99 @@
+name: CI
+
+# Every push, unconditionally. Nothing here is behind a path filter, and there
+# is no concurrency group cancelling superseded runs: a push that never gets a
+# verdict is the thing this workflow exists to prevent (ADR-0003 §5).
+#
+# There is no `pull_request` trigger either — it would double every same-repo PR
+# run, and this repository has no outside contributors yet. Add one when it
+# does, so pushes to fork branches are covered.
+on: push
+
+permissions:
+  contents: read
+
+jobs:
+  every-push:
+    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
+
+    # Pinned rather than `ubuntu-latest`: builds.hex.pm publishes no OTP 24 for
+    # ubuntu-26.04, so the floor leg would vanish the day the rolling label
+    # moves — a red build for a non-reason, on the one pair whose whole point is
+    # that it is exercised.
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The declared floor (ADR-0007 §9). Exact versions, because this pair
+          # is a published support promise and must not drift silently — the
+          # principle in ADR-0004 §5 is that the declared floor is the oldest
+          # pair CI actually tests.
+          - elixir: "1.15.8"
+            otp: "24.3.4.17"
+          # Current/current. Loose within the major, so patch releases are
+          # picked up without an edit; bump by hand when a new major lands.
+          - elixir: "1.20.x"
+            otp: "29.x"
+
+    env:
+      # Nothing reads this yet — `ExTrafilatura.Native` is still plain
+      # `use Rustler`. It is set from the start because the moment
+      # `rustler_precompiled` is wired up and an artifact exists for
+      # x86_64-unknown-linux-gnu, `mix test` would download one and test that
+      # instead of the working tree, and a change under native/ would pass CI
+      # without ever being compiled (ADR-0004 §6). It is also what keeps
+      # ADR-0003 §4's "does the vendor directory actually build" property true.
+      EX_TRAFILATURA_BUILD: "1"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # First, not last: it needs no toolchain, and as a later step a failing
+      # `mix format` would mean provenance went unchecked on that push
+      # (ADR-0003 §5). Answers "is the vendored tree exactly the published
+      # tarball plus our patches?".
+      - run: tools/verify/vendor-integrity.sh
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      # A branch ref, so it tracks stable. That is the accepted cost of
+      # `-D warnings` below: a new lint in a stable release can redden CI
+      # without the tree changing.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - run: mix deps.get
+
+      - run: mix format --check-formatted
+
+      # Compiles the vendored crate from source, so this doubles as the "does
+      # the vendor directory actually build" check (ADR-0003 §4).
+      #
+      # Deliberately uncached. A cold release build of the whole vendored tree
+      # measures 13 s wall / 93 s CPU on a ten-core machine, so on a runner it
+      # is well inside the ninety seconds ADR-0004 §5 budgets for the second
+      # matrix leg. A cache here would buy a few seconds and cost a moving part.
+      - run: mix test
+
+      # Scoped to our NIF crate only. Upstream already gates itself on
+      # `clippy -D warnings`, and re-litigating someone else's lints on code we
+      # have patched produces noise we would end up allow-listing around
+      # (ADR-0003 §4). The vendored crate is a `[patch.crates-io]` path
+      # dependency and not a workspace member, so it is out of scope already —
+      # `-p` says so out loud, and keeps it true if a workspace ever appears.
+      - run: cargo clippy -p ex_trafilatura --all-targets -- -D warnings
+        working-directory: native/ex_trafilatura
+
+      # Same scoping. Runs the vendor-patch regressions, which ADR-0003 §4 does
+      # not contemplate because the Rust layer was a build surface there rather
+      # than a test surface (#41). When a re-vendor drops a patch, this fails at
+      # the patched file with the panic message; the ExUnit fixture covering the
+      # same case fails several layers up, through the NIF's error mapping.
+      - run: cargo test -p ex_trafilatura
+        working-directory: native/ex_trafilatura
