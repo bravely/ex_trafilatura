@@ -25,6 +25,9 @@ ex_trafilatura-*.tar
 # Where cargo writes the NIF crate's build artifacts. Cargo.lock is tracked.
 /native/ex_trafilatura/target/
 
+# Where Rustler copies the compiled NIF. Built, never committed.
+/priv/native/
+
 # What tools/verify/drift.sh fetches and produces. The corpus is upstream's and
 # is cloned on demand rather than vendored (ADR-0003 §2); the dumps and the
 # escalation clone are working artifacts of one run. Only the result is kept,
