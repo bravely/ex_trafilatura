@@ -208,12 +208,16 @@ them for us.
   - `MissingMetadata(String)` is a **closed set of three** — `"title"`, `"url"`, `"date"`,
     constructed at `src/lib.rs:163`, `:166`, `:169` and checked in that order. It is an
     enumeration wearing a string's clothes.
-  - `LanguageMismatch` has **two construction sites with different meanings**.
-    `src/lib.rs:151` is the pre-extraction check on the declared language and sets
-    `got: String::new()` unconditionally; `src/lib.rs:269` carries `language_classifier`'s
-    verdict over the extracted text. So `got == ""` means *could not determine* and
-    `got == "de"` means *determined, and wrong*. Its `expected` is the caller's own
-    `target_language`, echoed back.
+  - `LanguageMismatch` has **two construction sites**, and `got` carries **two different
+    failures** — but the two distinctions do not line up. `src/lib.rs:151` is the
+    pre-extraction check on the declared language and sets `got: String::new()`
+    unconditionally; `src/lib.rs:269` carries `language_classifier`'s verdict over the
+    extracted text, which is *also* `""` when `whatlang` cannot place it and is rejected
+    anyway (`src/lib.rs:266`). So `got == ""` means *could not determine* — from either
+    site — and `got == "de"` means *determined, and wrong*. Its `expected` is the caller's
+    own `target_language`, echoed back. Corrected on
+    [#32](https://github.com/bravely/ex_trafilatura/issues/32); see
+    [ADR-0006](docs/adr/0006-result-and-error-representation.md).
 
   Also note `InsufficientContent` returns **before `ExtractResult` is constructed**, so
   the already-extracted `meta` is dropped — a page with a title but no article body loses

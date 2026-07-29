@@ -4,6 +4,19 @@
 - **Date:** 2026-07-27
 - **Ticket:** [#10 Decide the result and error representation](https://github.com/bravely/ex_trafilatura/issues/10)
 
+> **§4's reason for `nil` on `{:language_mismatch, _}` is corrected by
+> [#32](https://github.com/bravely/ex_trafilatura/issues/32).** `nil` does **not** identify
+> which of the crate's two construction sites fired. The late site emits an empty `got` too
+> — `language_classifier` returns `""` when `whatlang` cannot place the text
+> (`src/utils/language.rs:106`), and the crate rejects on that rather than passing it
+> (`src/lib.rs:266`, "reject even when lang is `""` (unknown)"). So `nil` means *could not
+> determine* and nothing more.
+>
+> **The decision is unchanged** — the term still carries only the detected language, and
+> `nil` is still worth keeping for exactly the reason it is *usable*: a caller can tell
+> "wrong language" from "no idea what language". What was wrong was the second reason given
+> for it, and it is corrected in place below.
+
 ## Context
 
 This is the public return contract: what `ExTrafilatura.extract/2` hands back when it
@@ -49,12 +62,18 @@ Six facts, all read from 0.3.0's source, that were not in the ticket:
   in that order, and only when `has_essential_metadata` is set. The `String` is an
   enumeration wearing a string's clothes.
 
-- **`LanguageMismatch` has two construction sites with different meanings.**
-  `src/lib.rs:151` is the pre-extraction check on the document's declared language and sets
-  `got: String::new()` unconditionally; `src/lib.rs:269` carries the verdict of
-  `language_classifier` over the extracted text. So `got == ""` means *could not
+- **`LanguageMismatch` has two construction sites, and `got` carries two different
+  failures.** `src/lib.rs:151` is the pre-extraction check on the document's declared
+  language and sets `got: String::new()` unconditionally; `src/lib.rs:269` carries the
+  verdict of `language_classifier` over the extracted text. So `got == ""` means *could not
   determine* and `got == "de"` means *determined, and wrong* — two different failures. Its
   `expected` field is the caller's own `target_language`, echoed back.
+
+  **The two distinctions do not line up**, and #32 found the ADR originally implying they
+  did. `language_classifier` returns `""` when `whatlang` fails
+  (`src/utils/language.rs:106`) and the late site rejects on that rather than passing it
+  (`src/lib.rs:266-268`), so an empty `got` comes back from **both** sites. Which site
+  fired is not observable, and nothing downstream needs it to be.
 
 ### What the payloads are worth
 
@@ -227,9 +246,10 @@ Applied:
   The set is closed at three by construction, and an atom is what a closed set of three
   is in Elixir.
 - `{:language_mismatch, String.t() | nil}` carries **only the detected language**. The
-  echoed `expected` is dropped by the rule, and `nil` preserves the distinction between the
-  two construction sites: `nil` is "could not determine", a binary is "determined, and
-  wrong".
+  echoed `expected` is dropped by the rule, and `nil` preserves the one distinction the
+  payload is worth having: `nil` is "could not determine", a binary is "determined, and
+  wrong". It says nothing about *which* construction site fired, because an empty `got`
+  reaches it from both — see the correction at the head of this document.
 - `{:invalid_utf8, non_neg_integer()}` carries **the byte offset only**. It is free from
   the mechanism (`byte_size(accepted)`), and taking the offset rather than the bytes
   sidesteps ADR-0005 §3's sub-binary retention hazard entirely — an integer retains
@@ -337,8 +357,10 @@ it keeps the Elixir side free of a traversal that exists only to undo something.
   asserting the same, which **pins §5's limitation** rather than its fix;
   `has_essential_metadata: true` against documents missing title, url and date in turn,
   asserting the checking order; `target_language` against both `LanguageMismatch` sites,
-  asserting `nil` from the early one and a binary from the late one; and a metadata
-  document asserting `nil` for absent fields against `""` for present-but-empty streams.
+  asserting `nil` where nothing determined a language and a binary where the classifier
+  did — which is a fixture per site, but **not** a claim that the payload identifies the
+  site, per the correction at the head of this document; and a metadata document asserting
+  `nil` for absent fields against `""` for present-but-empty streams.
 
 - **ADR-0003's borrowed-expectation lever survives with one mechanical translation.** #11
   defined `extract/1` to equal `Options::default()`, letting upstream's inline-HTML unit
