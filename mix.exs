@@ -45,6 +45,13 @@ defmodule ExTrafilatura.MixProject do
   defp deps do
     [
       {:rustler, "~> 0.38.0", runtime: false},
+
+      # Validates `ExTrafilatura.extract/2`'s option keyword list against the
+      # schema in `ExTrafilatura.Options`. A runtime dependency, and part of the
+      # public contract: an unknown key or an invalid value reaches the caller
+      # as a `NimbleOptions.ValidationError` (#11, reversed).
+      {:nimble_options, "~> 1.0"},
+
       # Agent tooling: syncs dependency usage rules into AGENTS.md and provides
       # `mix usage_rules.docs` / `.search_docs`. See usage_rules/0 above.
       #

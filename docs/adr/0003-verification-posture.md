@@ -16,6 +16,13 @@
 >   `crate_version/0` smoke test across seven of the eight precompiled targets, because
 >   nothing in §7 can see the binaries built from the source tree it validates.
 
+> **§3's option-key row is amended by a reversal on
+> [#11](https://github.com/bravely/ex_trafilatura/issues/11).** An unknown option key is
+> now **refused, not ignored**, and both refusals raise `NimbleOptions.ValidationError`
+> rather than `ArgumentError`. §3 only ever cited #11 for that row rather than deciding
+> it, so the row is corrected in place; the reasoning is on #11 and the change landed in
+> [#30](https://github.com/bravely/ex_trafilatura/issues/30).
+
 ## Context
 
 The repository is scaffolding. There is no CI, no NIF, no fixtures — `lib/ex_trafilatura.ex`
@@ -121,7 +128,7 @@ HTML pinning a boundary **this library owns**:
 |---|---|
 | The three reachable `TrafilaturaError` variants — `InsufficientContent`, `MissingMetadata`, `LanguageMismatch` — map as decided, plus ADR-0001's Elixir-originated oversized-input error | [#10](https://github.com/bravely/ex_trafilatura/issues/10) |
 | `""` → `nil` (or not) applied uniformly | [#10](https://github.com/bravely/ex_trafilatura/issues/10) |
-| Each of the 13 exposed option keys reaches the crate and has an observable effect; unknown keys are ignored and invalid values raise `ArgumentError` | [#11](https://github.com/bravely/ex_trafilatura/issues/11) |
+| Each of the 13 exposed option keys reaches the crate and has an observable effect; an unknown key and an invalid value both raise `NimbleOptions.ValidationError` | [#11](https://github.com/bravely/ex_trafilatura/issues/11) |
 | `extract/1` equals `trafilatura::extract(html, &Options::default())` | [#11](https://github.com/bravely/ex_trafilatura/issues/11) §6 |
 | `max_input_bytes` fires before the NIF call, and errors rather than truncates | [ADR-0001](0001-resource-safety-posture.md) §1–3 |
 | Non-UTF-8 input behaves as decided | [#14](https://github.com/bravely/ex_trafilatura/issues/14) |
