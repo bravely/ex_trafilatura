@@ -274,29 +274,59 @@ defmodule ExTrafilatura.OptionsTest do
   end
 
   describe "unknown keys" do
-    test "are silently ignored" do
-      # Tolerated so that passing a superset from a caller's own config never
-      # crashes. The accepted cost is that `exclude_comment:` is undiscoverable
-      # except by noticing the wrong output.
-      assert ExTrafilatura.extract(@article, exclude_comment: true, nonsense: %{}) ==
-               ExTrafilatura.extract(@article)
+    test "raise, naming the key and what was valid" do
+      # This reverses #11 §7, which had them silently ignored and accepted that
+      # a typo'd key was undiscoverable except by noticing the wrong output.
+      # The typo is the whole point: `exclude_comment:` is one character from a
+      # real key and would otherwise change nothing and say nothing.
+      error =
+        assert_raise NimbleOptions.ValidationError, fn ->
+          ExTrafilatura.extract(@article, exclude_comment: true)
+        end
+
+      assert Exception.message(error) =~ "unknown options [:exclude_comment]"
+      assert Exception.message(error) =~ ":exclude_comments"
     end
 
-    test "are ignored even when their value would be invalid for a key we know" do
-      # The value of a key we do not have is never looked at, so it cannot be
-      # wrong. `focus` next to it still is.
-      assert ExTrafilatura.extract(@article, focu: :sideways) ==
-               ExTrafilatura.extract(@article)
+    test "raise whatever their value would have been" do
+      assert_raise NimbleOptions.ValidationError, fn ->
+        ExTrafilatura.extract(@article, nonsense: %{})
+      end
+    end
+
+    test "cost a caller who keeps our options alongside their own a Keyword.take/2" do
+      # The accepted price of the reversal, pinned so it is a known shape of
+      # caller code rather than a surprise.
+      theirs = [focus: :favor_recall, retries: 3]
+
+      assert_raise NimbleOptions.ValidationError, fn ->
+        ExTrafilatura.extract(@article, theirs)
+      end
+
+      assert {:ok, _} = ExTrafilatura.extract(@article, Keyword.take(theirs, [:focus]))
     end
   end
 
   describe "the struct that crosses the boundary" do
     test "carries all twelve fields whatever the caller named" do
-      for opts <- [[], [focus: :favor_recall], [nonsense: 1], [:not_a_keyword_list]] do
+      for opts <- [[], [focus: :favor_recall], [include_links: true, include_images: true]] do
         overrides = ExTrafilatura.Options.normalize(opts)
 
         assert %ExTrafilatura.Options{} = overrides
         assert overrides |> Map.from_struct() |> map_size() == 12
+      end
+    end
+
+    test "leaves every field nil when given nothing" do
+      # The guard on the schema. Its entries must never carry `default:` — the
+      # defaults belong to the crate, and a key the caller did not name has to
+      # arrive as `nil` so that nothing is assigned over `Options::default()`.
+      # A default declared here would be invisible whenever it happened to
+      # match the crate's, so this asserts the absence rather than the values.
+      overrides = ExTrafilatura.Options.normalize([])
+
+      for {field, value} <- Map.from_struct(overrides) do
+        assert value == nil, "#{inspect(field)} arrived as #{inspect(value)}, not nil"
       end
     end
 
@@ -318,12 +348,21 @@ defmodule ExTrafilatura.OptionsTest do
   end
 
   describe "repeated keys" do
-    test "settle on the last, as struct/2 does" do
-      # Inherited rather than chosen: the overrides are built with `struct/2`,
-      # which — like `Map.new/1` and `Enum.into/2` — takes the last of a
-      # repeated key. `Keyword.get/3` would have taken the first.
-      assert ExTrafilatura.extract(@focus, focus: :favor_recall, focus: :balanced) ==
-               ExTrafilatura.extract(@focus, focus: :balanced)
+    test "raise, rather than one of them silently winning" do
+      # A consequence of refusing unknown keys, and a welcome one — naming an
+      # option twice is a caller mistake, and neither first-wins nor last-wins
+      # would have said so.
+      #
+      # The message is the wart: the schema takes the first occurrence and
+      # reports the leftover as unknown, so the key is named as *both* unknown
+      # and valid in one sentence. Pinned because a caller who hits it will be
+      # baffled, and because it is the schema's wording rather than ours to fix.
+      error =
+        assert_raise NimbleOptions.ValidationError, fn ->
+          ExTrafilatura.extract(@focus, focus: :favor_recall, focus: :balanced)
+        end
+
+      assert Exception.message(error) =~ "unknown options [:focus]"
     end
   end
 
@@ -332,7 +371,9 @@ defmodule ExTrafilatura.OptionsTest do
     # these is a caller mistake, and none of them can arrive from the network.
 
     test "a focus outside the enum raises" do
-      assert_raise ArgumentError, fn -> ExTrafilatura.extract(@article, focus: :favour_recall) end
+      assert_raise NimbleOptions.ValidationError, fn ->
+        ExTrafilatura.extract(@article, focus: :favour_recall)
+      end
     end
 
     test "a non-boolean for a boolean key raises" do
@@ -344,13 +385,17 @@ defmodule ExTrafilatura.OptionsTest do
             :enable_fallback,
             :has_essential_metadata
           ] do
-        assert_raise ArgumentError, fn -> ExTrafilatura.extract(@article, [{key, :yes}]) end
+        assert_raise NimbleOptions.ValidationError, fn ->
+          ExTrafilatura.extract(@article, [{key, :yes}])
+        end
       end
     end
 
     test "a non-binary for a binary key raises" do
       for key <- [:target_language, :original_url, :prune_selector] do
-        assert_raise ArgumentError, fn -> ExTrafilatura.extract(@article, [{key, :en}]) end
+        assert_raise NimbleOptions.ValidationError, fn ->
+          ExTrafilatura.extract(@article, [{key, :en}])
+        end
       end
     end
 
@@ -358,7 +403,9 @@ defmodule ExTrafilatura.OptionsTest do
       # A relative URL cannot be the base that the document's relative links
       # resolve against, and the crate refuses one too.
       for url <- ["/relative", "example.com/no-scheme", "not a url at all"] do
-        assert_raise ArgumentError, fn -> ExTrafilatura.extract(@article, original_url: url) end
+        assert_raise NimbleOptions.ValidationError, fn ->
+          ExTrafilatura.extract(@article, original_url: url)
+        end
       end
     end
 
@@ -385,43 +432,47 @@ defmodule ExTrafilatura.OptionsTest do
             :has_essential_metadata,
             :excluded_authors
           ] do
-        assert_raise ArgumentError, fn -> ExTrafilatura.extract(@article, [{key, nil}]) end
+        assert_raise NimbleOptions.ValidationError, fn ->
+          ExTrafilatura.extract(@article, [{key, nil}])
+        end
       end
     end
 
     test "excluded_authors that is not a list of binaries raises" do
-      assert_raise ArgumentError, fn ->
+      assert_raise NimbleOptions.ValidationError, fn ->
         ExTrafilatura.extract(@article, excluded_authors: "Ada Lovelace")
       end
 
-      assert_raise ArgumentError, fn ->
+      assert_raise NimbleOptions.ValidationError, fn ->
         ExTrafilatura.extract(@article, excluded_authors: ["Ada Lovelace", :grace_hopper])
       end
     end
 
     test "an html_date_override that is not a Date raises" do
-      assert_raise ArgumentError, fn ->
+      assert_raise NimbleOptions.ValidationError, fn ->
         ExTrafilatura.extract(@article, html_date_override: "1999-12-31")
       end
     end
 
-    test "something that is not a list at all raises" do
-      # A map is the likely mistake here, and the one worth a message.
+    test "something that is not a list at all does not match the function head" do
+      # `extract/2` guards on `is_list/1`, so this never reaches the schema.
+      # That is what keeps one kind of mistake to one kind of exception: a
+      # wrong *type* for `opts` is a `FunctionClauseError`, exactly as it would
+      # be for any other guarded argument, and a wrong *option* is always a
+      # `NimbleOptions.ValidationError`.
       for opts <- [%{focus: :balanced}, "focus", :focus] do
-        assert_raise ArgumentError, fn -> ExTrafilatura.extract(@article, opts) end
+        assert_raise FunctionClauseError, fn -> ExTrafilatura.extract(@article, opts) end
       end
     end
 
-    test "a list that is not a keyword list names no options" do
-      # A consequence of the `{key, value}` generator pattern: an element that
-      # is not a pair matches nothing and is skipped, so a list we can find no
-      # key in is the same as an empty one. Pinned because it is a silent
-      # outcome, not because it is a good one to rely on.
-      assert ExTrafilatura.extract(@article, [:focus]) == ExTrafilatura.extract(@article)
+    test "a list that is not a keyword list raises" do
+      assert_raise ArgumentError, ~r/expected a keyword list/, fn ->
+        ExTrafilatura.extract(@article, [:focus])
+      end
     end
 
     test "the message names the key that was wrong" do
-      assert_raise ArgumentError, ~r/:focus/, fn ->
+      assert_raise NimbleOptions.ValidationError, ~r/:focus/, fn ->
         ExTrafilatura.extract(@article, focus: :sideways)
       end
     end

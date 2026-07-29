@@ -99,10 +99,11 @@ defmodule ExTrafilatura do
     * `html_date_override` — used as `metadata.date` directly, instead of
       extracting a date from the document.
 
-  **Unknown keys are ignored**, so a superset from your own config is safe to
-  pass — at the cost that a typo'd `exclude_comment:` is silent. An **invalid
-  value raises `ArgumentError`**: exceptions here mean exactly one thing, that
-  you called it wrong, and nothing arriving from the network can cause one.
+  **An unknown key raises**, and so does an invalid value, both as a
+  `NimbleOptions.ValidationError` naming the key. Exceptions here mean exactly
+  one thing — that you called it wrong — and nothing arriving from the network
+  can cause one. If you keep extraction options alongside your own in one
+  config, `Keyword.take/2` the ones meant for us.
 
   `nil` is a value only for the four keys whose default is `nil` — passing one
   of those at `nil` is the same call as leaving it out. On the other eight it is
@@ -137,7 +138,7 @@ defmodule ExTrafilatura do
   # three crate-sourced error reasons rather than five. Restoring any of the six
   # is additive; removing one later would not be. Decided in #11.
   @spec extract(binary(), keyword()) :: {:ok, Result.t()} | {:error, {:unknown, String.t()}}
-  def extract(html, opts \\ []) when is_binary(html) do
+  def extract(html, opts \\ []) when is_binary(html) and is_list(opts) do
     Native.extract(html, Options.normalize(opts))
   end
 
