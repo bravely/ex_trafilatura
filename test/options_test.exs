@@ -318,9 +318,12 @@ defmodule ExTrafilatura.OptionsTest do
   end
 
   describe "repeated keys" do
-    test "take the first, as Keyword.fetch/2 does" do
+    test "settle on the last, as struct/2 does" do
+      # Inherited rather than chosen: the overrides are built with `struct/2`,
+      # which — like `Map.new/1` and `Enum.into/2` — takes the last of a
+      # repeated key. `Keyword.get/3` would have taken the first.
       assert ExTrafilatura.extract(@focus, focus: :favor_recall, focus: :balanced) ==
-               ExTrafilatura.extract(@focus, focus: :favor_recall)
+               ExTrafilatura.extract(@focus, focus: :balanced)
     end
   end
 
@@ -409,11 +412,11 @@ defmodule ExTrafilatura.OptionsTest do
       end
     end
 
-    test "a list that is not a keyword list names no options, as it does to Keyword.get/3" do
-      # The consequence of building the map from the twelve known keys rather
-      # than from what the caller passed: a list we can find no key in is the
-      # same as an empty one. Pinned because it is a silent outcome, not
-      # because it is a good one to rely on.
+    test "a list that is not a keyword list names no options" do
+      # A consequence of the `{key, value}` generator pattern: an element that
+      # is not a pair matches nothing and is skipped, so a list we can find no
+      # key in is the same as an empty one. Pinned because it is a silent
+      # outcome, not because it is a good one to rely on.
       assert ExTrafilatura.extract(@article, [:focus]) == ExTrafilatura.extract(@article)
     end
 

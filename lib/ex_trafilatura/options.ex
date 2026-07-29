@@ -19,16 +19,15 @@ defmodule ExTrafilatura.Options do
   # crate's default call rather than a reconstruction of it; the proof is
   # `no_overrides_is_the_crates_default_call` in `native/`.
 
-  # The twelve, in the order `ExTrafilatura.extract/2` documents them — which is
-  # also the order two wrong values are reported in.
+  # The shape that crosses the boundary, and the only place the twelve keys are
+  # written down. It is declared rather than assembled: `%__MODULE__{}` compiles
+  # to a literal map carrying all twelve, which matters because `Overrides` on
+  # the Rust side is a `#[derive(NifStruct)]` naming this module, and its
+  # generated decoder reads every field — a key that is merely absent is a
+  # decode failure there, not a `None`. Being a struct puts that out of reach.
   #
-  # The struct below is built *from* this list rather than the list being read
-  # back off the struct, because Elixir refuses `%__MODULE__{}` in the body of
-  # the module that defines it: "the struct is being accessed in the same
-  # context that defines it". So the keys have to be written down once
-  # somewhere, and this is that once — `defstruct` takes it, and `normalize/1`
-  # iterates it.
-  @keys [
+  # In the order `ExTrafilatura.extract/2` documents them.
+  defstruct [
     :focus,
     :exclude_comments,
     :exclude_tables,
@@ -42,14 +41,6 @@ defmodule ExTrafilatura.Options do
     :excluded_authors,
     :html_date_override
   ]
-
-  # The shape that crosses the boundary, declared once and compiled rather than
-  # assembled. `Overrides` on the Rust side is a `#[derive(NifStruct)]` naming
-  # this module, and its generated decoder reads every field: a key that is
-  # merely absent is a decode failure there, not a `None`. A struct is what
-  # makes that unreachable — `%__MODULE__{}` compiles to a literal carrying all
-  # twelve, so no code path can produce a short one.
-  defstruct @keys
 
   # The four whose crate field is an `Option`, and so the four for which `nil`
   # is a value the caller may pass rather than a wrong one. On the other eight
@@ -75,20 +66,22 @@ defmodule ExTrafilatura.Options do
   # The overrides `opts` names, or an `ArgumentError` naming the first key whose
   # value is wrong. A key the caller did not name keeps the struct's `nil`.
   #
-  # Reading the keys we know *out of* `opts`, rather than walking `opts` and
-  # skipping what we do not recognise, is what makes ignoring an unknown key
-  # structural: there is no branch that could stop doing it. A list that is not
-  # a keyword list therefore names no options, the same as `[]` — consistent
-  # with `Keyword.get/3`, which also finds nothing in one. `Keyword.fetch/2`
-  # also settles a repeated key on the first, as the `Keyword` functions do.
+  # The struct is the list of keys we know, so there is no second copy to keep
+  # in step: `is_map_key/2` asks it directly, and `struct/2` would drop an
+  # unrecognised key even if one got past. The filter is what keeps `cast/2`
+  # from ever seeing a key we do not own — an unknown key is ignored whatever
+  # its value, so `nonsense: :anything` is as quiet as `nonsense: 1`.
+  #
+  # The generator's `{key, value}` pattern does the rest: an element of `opts`
+  # that is not a pair matches nothing and is skipped, so a list that is not a
+  # keyword list names no options rather than failing. A repeated key settles on
+  # the last, which is what `struct/2` does, and `Map.new/1` and `Enum.into/2`
+  # with it.
   @spec normalize(keyword()) :: t()
   def normalize(opts) when is_list(opts) do
-    Enum.reduce(@keys, %__MODULE__{}, fn key, overrides ->
-      case Keyword.fetch(opts, key) do
-        {:ok, value} -> %{overrides | key => cast(key, value)}
-        :error -> overrides
-      end
-    end)
+    named = for {key, value} <- opts, is_map_key(%__MODULE__{}, key), do: {key, cast(key, value)}
+
+    struct(__MODULE__, named)
   end
 
   def normalize(opts) do
