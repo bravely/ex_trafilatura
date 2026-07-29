@@ -19,8 +19,15 @@ defmodule ExTrafilatura.Options do
   # crate's default call rather than a reconstruction of it; the proof is
   # `no_overrides_is_the_crates_default_call` in `native/`.
 
-  # In the order `ExTrafilatura.extract/2` documents them, which is also the
-  # order two wrong values are reported in.
+  # The twelve, in the order `ExTrafilatura.extract/2` documents them — which is
+  # also the order two wrong values are reported in.
+  #
+  # The struct below is built *from* this list rather than the list being read
+  # back off the struct, because Elixir refuses `%__MODULE__{}` in the body of
+  # the module that defines it: "the struct is being accessed in the same
+  # context that defines it". So the keys have to be written down once
+  # somewhere, and this is that once — `defstruct` takes it, and `normalize/1`
+  # iterates it.
   @keys [
     :focus,
     :exclude_comments,
