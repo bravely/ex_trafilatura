@@ -40,11 +40,10 @@ defmodule ExTrafilatura.ErrorsTest do
   # one of the crate's error variants, and asserts on the whole term rather than
   # on its tag — the payload is the part the mapping can get wrong.
   #
-  # Two of the seven reasons are unreachable from here. `{:unknown, _}` needs a
-  # variant nothing constructs and `{:panic, _}` a panic the vendored crate is
-  # patched to prevent, so both are exercised in `native/` instead (ADR-0006
-  # "Consequences"). The Elixir half of the panic guard — the `Logger.error` —
-  # is reachable, and is the last `describe` below.
+  # Two of the five reasons are unreachable from here — `{:unknown, _}` and
+  # `{:panic, _}` — so both are exercised in `native/` instead, against
+  # synthetic error values (ADR-0006 "Consequences"). The Elixir half of the
+  # panic guard, the `Logger.error`, is reachable and is the last `describe`.
 
   @title "<title>A minimal article</title>"
   @canonical ~s(<link rel="canonical" href="https://journal.example.com/an-article">)
@@ -110,10 +109,13 @@ defmodule ExTrafilatura.ErrorsTest do
   end
 
   describe "{:language_mismatch, language}" do
-    test "nil when the document's own declaration decided it, before extraction ran" do
+    test "nil when nothing determined a language" do
       # The early construction site: the crate checks the document's declared
       # language and returns without ever classifying any text, so there is no
-      # detected language to carry. `nil` is "could not determine".
+      # detected language to carry. `nil` is "could not determine" and nothing
+      # more — the late site produces it too, whenever the classifier cannot
+      # place the extracted text — so this is not a way of telling the two
+      # apart.
       html = article(~s(<meta http-equiv="content-language" content="de">))
 
       assert ExTrafilatura.extract(html, target_language: "en") ==
@@ -139,10 +141,8 @@ defmodule ExTrafilatura.ErrorsTest do
   end
 
   describe "{:panic, message}" do
-    # The half of the guard that lives in Elixir. Reaching it through
-    # `extract/2` would take a panic the vendored crate is patched to prevent,
-    # so it is called directly here — which is the whole reason it is a function
-    # on a module of its own rather than a clause inside `extract/2`.
+    # The half of the guard that lives in Elixir, called directly — see
+    # `ExTrafilatura.Panic` for why it is reachable that way at all.
 
     test "a panic is logged, naming the crate and pointing at the tracker" do
       panicked = {:error, {:panic, "index out of bounds: the len is 8 but the index is 9"}}

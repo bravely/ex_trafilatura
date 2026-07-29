@@ -73,9 +73,9 @@ defmodule ExTrafilatura do
 
   Two of the five are the crate saying something went wrong on its own side:
   `{:panic, message}` is a crate bug, and `{:unknown, message}` is a variant
-  with no term of its own yet. A catch-all clause that quietly skips both — the
-  `_ -> :skip` above the `raise` — is the one shape worth avoiding, which is why
-  a `{:panic, _}` also emits a `Logger.error`.
+  with no term of its own yet. Writing `_ -> :skip` in place of that last clause
+  is the one shape worth avoiding, because it buries both — which is why a
+  `{:panic, _}` also emits a `Logger.error`.
 
   ## Options
 

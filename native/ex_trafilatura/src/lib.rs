@@ -179,9 +179,12 @@ impl From<TrafilaturaError> for Reason {
             TrafilaturaError::InsufficientContent { .. } => Reason::InsufficientContent,
 
             // `expected` is the caller's own `target_language` handed back. What
-            // is left is the verdict, and `None` is "could not determine" — the
-            // distinction between the crate's two construction sites, which is
-            // the whole reason this reason is not a bare atom.
+            // is left is the verdict, and `None` is "could not determine" —
+            // which is the distinction worth carrying, and the whole reason this
+            // reason is not a bare atom. It is *not* a marker for which of the
+            // crate's two construction sites fired: the early one sets `got` to
+            // the empty string unconditionally, and the late one does too
+            // whenever the classifier cannot place the extracted text.
             TrafilaturaError::LanguageMismatch { got, .. } => {
                 Reason::LanguageMismatch(nil_if_empty(got))
             }
@@ -353,6 +356,12 @@ fn extract<'a>(env: Env<'a>, html: &str, overrides: Overrides) -> Result<Term<'a
     // inconsistent. The guard's limit is the one `catch_unwind` always has —
     // it does not catch a stack overflow or an abort. The crate's own
     // `MAX_TREE_DEPTH` bound is what covers that.
+    //
+    // It wraps the crate's call and nothing else on purpose. Encoding the
+    // result is ours, is field moves and `nil_if_empty`, and has no panicking
+    // path; widening the guard over it would put a `Term` inside a closure that
+    // has to be unwind-safe for no gain. The untrusted document is what this
+    // guards against, and it reaches only as far as the line below.
     let extraction = catch_unwind(|| trafilatura::extract(html, &options));
 
     Ok(match extraction {
@@ -482,6 +491,10 @@ mod tests {
             Reason::from(TrafilaturaError::ParseError("unclosed tag".to_string())),
             Reason::Unknown("failed to parse HTML: unclosed tag".to_string())
         );
+        assert_eq!(
+            Reason::from(TrafilaturaError::Io(std::io::Error::other("broken pipe"))),
+            Reason::Unknown("IO error: broken pipe".to_string())
+        );
     }
 
     /// The arm that keeps the closed set of three closed. A fourth essential
@@ -505,13 +518,10 @@ mod tests {
         let formatted =
             catch_unwind(|| panic!("byte index {} is not a char boundary", 8)).expect_err("ditto");
 
+        assert_eq!(panic_message(literal), "index out of bounds");
         assert_eq!(
-            Reason::Panic(panic_message(literal)),
-            Reason::Panic("index out of bounds".to_string())
-        );
-        assert_eq!(
-            Reason::Panic(panic_message(formatted)),
-            Reason::Panic("byte index 8 is not a char boundary".to_string())
+            panic_message(formatted),
+            "byte index 8 is not a char boundary"
         );
     }
 
