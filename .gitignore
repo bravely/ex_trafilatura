@@ -25,6 +25,20 @@ ex_trafilatura-*.tar
 # Where cargo writes the NIF crate's build artifacts. Cargo.lock is tracked.
 /native/ex_trafilatura/target/
 
+# What tools/verify/drift.sh fetches and produces. The corpus is upstream's and
+# is cloned on demand rather than vendored (ADR-0003 §2); the dumps and the
+# escalation clone are working artifacts of one run. Only the result is kept,
+# and it is kept in VENDOR.md.
+/tools/verify/.corpus/
+/tools/verify/.drift/
+/tools/verify/drift/*/target/
+
+# Where cargo writes the adversarial benchmark's build artifacts. Its Cargo.lock
+# is tracked, deliberately: the benchmark emits a figure we publish, and a number
+# produced by an unpinned dependency graph is not the reproducible one it claims
+# to be.
+/tools/verify/adversarial-bench/target/
+
 # Claude Code local state: personal settings and scratch worktrees.
 # Nothing here is shared — the agent docs that are meant to be tracked live
 # in docs/agents/. If shared config is added later (e.g. .claude/settings.json
