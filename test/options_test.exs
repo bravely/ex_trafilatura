@@ -307,10 +307,47 @@ defmodule ExTrafilatura.OptionsTest do
     end
   end
 
+  describe "max_input_bytes" do
+    # The thirteenth key and the one non-crate key in the surface: ours, not
+    # upstream's, and the only one carrying a default of our own (ADR-0001 §2).
+
+    test "defaults to 10 MB" do
+      # The figure ADR-0001 §1 chose, asserted at the seam rather than by
+      # feeding 10 MB through the gate. Moving it is a decision rather than a
+      # tweak, which is what this test is here to make someone notice.
+      assert {max_input_bytes, %ExTrafilatura.Options{}} = ExTrafilatura.Options.normalize([])
+      assert max_input_bytes == 10 * 1024 * 1024
+    end
+
+    test "the caller's value replaces it, :infinity included" do
+      assert {512, _} = ExTrafilatura.Options.normalize(max_input_bytes: 512)
+      assert {:infinity, _} = ExTrafilatura.Options.normalize(max_input_bytes: :infinity)
+    end
+
+    test "never reaches the NIF" do
+      # It is consumed in Elixir, so it must not appear in the struct the Rust
+      # side decodes — `Overrides` there names twelve fields and would refuse a
+      # thirteenth. This is the seam: the schema validates all thirteen keys,
+      # and exactly one of them is split back off before the boundary.
+      {_max_input_bytes, overrides} = ExTrafilatura.Options.normalize(max_input_bytes: 512)
+
+      refute Map.has_key?(overrides, :max_input_bytes)
+      assert {:ok, _} = ExTrafilatura.Native.extract(@article, overrides)
+    end
+
+    test "a value that is neither a positive byte count nor :infinity raises" do
+      for value <- [0, -1, "10", 1.5, nil, :unlimited] do
+        assert_raise NimbleOptions.ValidationError, ~r/:max_input_bytes/, fn ->
+          ExTrafilatura.extract(@article, max_input_bytes: value)
+        end
+      end
+    end
+  end
+
   describe "the struct that crosses the boundary" do
     test "carries all twelve fields whatever the caller named" do
       for opts <- [[], [focus: :favor_recall], [include_links: true, include_images: true]] do
-        overrides = ExTrafilatura.Options.normalize(opts)
+        {_max_input_bytes, overrides} = ExTrafilatura.Options.normalize(opts)
 
         assert %ExTrafilatura.Options{} = overrides
         assert overrides |> Map.from_struct() |> map_size() == 12
@@ -323,7 +360,9 @@ defmodule ExTrafilatura.OptionsTest do
       # arrive as `nil` so that nothing is assigned over `Options::default()`.
       # A default declared here would be invisible whenever it happened to
       # match the crate's, so this asserts the absence rather than the values.
-      overrides = ExTrafilatura.Options.normalize([])
+      # `max_input_bytes` is exempt and is not in the struct to be checked: its
+      # default is ours to choose, because the crate has no such option.
+      {_max_input_bytes, overrides} = ExTrafilatura.Options.normalize([])
 
       for {field, value} <- Map.from_struct(overrides) do
         assert value == nil, "#{inspect(field)} arrived as #{inspect(value)}, not nil"
@@ -337,7 +376,7 @@ defmodule ExTrafilatura.OptionsTest do
       # `ArgumentError` naming nothing — none of the attribution the errors
       # above carry. A struct puts that out of reach: this test has to take a
       # field back off to reach it at all.
-      overrides = ExTrafilatura.Options.normalize([])
+      {_max_input_bytes, overrides} = ExTrafilatura.Options.normalize([])
 
       assert {:ok, _} = ExTrafilatura.Native.extract(@article, overrides)
 
@@ -430,7 +469,11 @@ defmodule ExTrafilatura.OptionsTest do
             :include_images,
             :enable_fallback,
             :has_essential_metadata,
-            :excluded_authors
+            :excluded_authors,
+            # Ours rather than the crate's, and the one where `nil` is the
+            # plausible mistake: it is not how the cap is removed. `:infinity`
+            # is.
+            :max_input_bytes
           ] do
         assert_raise NimbleOptions.ValidationError, fn ->
           ExTrafilatura.extract(@article, [{key, nil}])
