@@ -77,16 +77,16 @@ defmodule ExTrafilatura.Options do
     raise ArgumentError, "options must be a keyword list, got: #{inspect(opts)}"
   end
 
+  # Every shape a value may legally take. Anything that matches none of them
+  # falls through to the last clause, so there is one refusal site rather than
+  # one per key.
   defp cast(key, nil) when key in @nilable, do: nil
 
   defp cast(:focus, value) when value in @focuses, do: value
-  defp cast(:focus, value), do: reject(:focus, value, "one of #{inspect(@focuses)}")
 
   defp cast(key, value) when key in @booleans and is_boolean(value), do: value
-  defp cast(key, value) when key in @booleans, do: reject(key, value, "a boolean")
 
   defp cast(key, value) when key in @binaries and is_binary(value), do: value
-  defp cast(key, value) when key in @binaries, do: reject(key, value, "a binary")
 
   defp cast(:original_url, value) when is_binary(value) do
     # The crate's `original_url` is a `url::Url`, whose one demand is a scheme:
@@ -96,19 +96,13 @@ defmodule ExTrafilatura.Options do
     # pass here.
     case URI.new(value) do
       {:ok, %URI{scheme: scheme}} when is_binary(scheme) -> value
-      _ -> reject(:original_url, value, "an absolute URL, with a scheme")
+      _ -> reject(:original_url, value)
     end
   end
 
-  defp cast(:original_url, value), do: reject(:original_url, value, "a binary")
-
   defp cast(:excluded_authors, value) when is_list(value) do
-    if Enum.all?(value, &is_binary/1),
-      do: value,
-      else: reject(:excluded_authors, value, "a list of binaries")
+    if Enum.all?(value, &is_binary/1), do: value, else: reject(:excluded_authors, value)
   end
-
-  defp cast(:excluded_authors, value), do: reject(:excluded_authors, value, "a list of binaries")
 
   # Sent as a `{year, month, day}` triple rather than the struct: the crate's
   # own date is a `chrono::NaiveDate`, which is the ISO calendar and nothing
@@ -118,12 +112,18 @@ defmodule ExTrafilatura.Options do
   defp cast(:html_date_override, %Date{calendar: Calendar.ISO} = date),
     do: {date.year, date.month, date.day}
 
-  defp cast(:html_date_override, value),
-    do: reject(:html_date_override, value, "a Date in the ISO calendar")
+  defp cast(key, value), do: reject(key, value)
 
-  @spec reject(atom(), term(), String.t()) :: no_return()
-  defp reject(key, value, expected) do
+  defp reject(key, value) do
     raise ArgumentError,
-          "invalid value for #{inspect(key)}: expected #{expected}, got: #{inspect(value)}"
+          "invalid value for #{inspect(key)}: expected #{expected(key)}, got: #{inspect(value)}"
   end
+
+  defp expected(:focus), do: "one of #{inspect(@focuses)}"
+  defp expected(key) when key in @booleans, do: "a boolean"
+  defp expected(:target_language), do: "a binary or nil"
+  defp expected(:prune_selector), do: "a binary or nil"
+  defp expected(:original_url), do: "an absolute URL with a scheme, or nil"
+  defp expected(:excluded_authors), do: "a list of binaries"
+  defp expected(:html_date_override), do: "a Date in the ISO calendar, or nil"
 end
