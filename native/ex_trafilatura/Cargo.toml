@@ -19,6 +19,11 @@ rustler = "0.38"
 # the crate's own range, so both resolve to one chrono.
 chrono = { version = "0.4", default-features = false }
 
+# Only to build the `url::Url` the crate's `original_url` option is typed as.
+# Semver-compatible with the crate's own range, as with chrono above, so both
+# resolve to one url.
+url = { version = "2", default-features = false }
+
 # The registry range we consider ourselves bound to. The patch entry below wins
 # over any matching published version, so upstream shipping 0.3.1 does not
 # silently move us off the vendored copy (ADR-0002 §3).

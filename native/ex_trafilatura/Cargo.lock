@@ -193,6 +193,7 @@ dependencies = [
  "chrono",
  "rustler",
  "trafilatura",
+ "url",
 ]
 
 [[package]]
