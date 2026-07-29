@@ -38,6 +38,12 @@ defmodule ExTrafilatura.Options do
 
   @unset Map.new(@keys, &{&1, nil})
 
+  # The four whose crate field is an `Option`, and so the four for which `nil`
+  # is a value the caller may pass rather than a wrong one. On the other eight
+  # it is wrong, and saying so is the whole point of the second rule above —
+  # `focus: nil` is a mistake, not a way of spelling `:balanced`.
+  @nilable [:target_language, :original_url, :prune_selector, :html_date_override]
+
   @booleans [
     :exclude_comments,
     :exclude_tables,
@@ -73,31 +79,30 @@ defmodule ExTrafilatura.Options do
     end)
   end
 
-  # `nil` is how the crate spells "unset" for the four nilable keys, and it is
-  # their default — so naming one at `nil` is the same call as not naming it.
-  # Accepting it for the other eight too keeps `key: value_or_nil` from being a
-  # trap in caller code that builds options conditionally.
-  defp cast(_key, nil), do: nil
+  defp cast(key, nil) when key in @nilable, do: nil
 
   defp cast(:focus, value) when value in @focuses, do: value
+  defp cast(:focus, value), do: invalid(:focus, value, "one of #{inspect(@focuses)}")
 
   defp cast(key, value) when key in @booleans and is_boolean(value), do: value
+  defp cast(key, value) when key in @booleans, do: invalid(key, value, "a boolean")
 
   defp cast(key, value) when key in @binaries and is_binary(value), do: value
+  defp cast(key, value) when key in @binaries, do: invalid(key, value, "a binary")
 
   defp cast(:original_url, value) when is_binary(value) do
-    # The crate's `original_url` is a `url::Url`, and its job is to resolve the
-    # document's relative links — which a URL with no scheme or no host cannot
-    # do. Rejecting those here is what lets the Rust-side parse be a backstop
-    # rather than a second, mute failure mode.
+    # The crate's `original_url` is a `url::Url`, whose one demand is a scheme:
+    # it is the base that relative links in the document resolve against, and a
+    # relative URL cannot be one. Nothing narrower is checked here, because
+    # anything the crate accepts we accept — `file:` and `mailto:` parse there,
+    # so they pass here.
     case URI.new(value) do
-      {:ok, %URI{scheme: scheme, host: host}} when is_binary(scheme) and host not in [nil, ""] ->
-        value
-
-      _ ->
-        invalid(:original_url, value, "an absolute URL with a scheme and a host")
+      {:ok, %URI{scheme: scheme}} when is_binary(scheme) -> value
+      _ -> invalid(:original_url, value, "an absolute URL, with a scheme")
     end
   end
+
+  defp cast(:original_url, value), do: invalid(:original_url, value, "a binary")
 
   defp cast(:excluded_authors, value) when is_list(value) do
     if Enum.all?(value, &is_binary/1) do
@@ -107,6 +112,8 @@ defmodule ExTrafilatura.Options do
     end
   end
 
+  defp cast(:excluded_authors, value), do: invalid(:excluded_authors, value, "a list of binaries")
+
   # Sent as a `{year, month, day}` triple rather than the struct: the crate's
   # own date is a `chrono::NaiveDate`, which is the ISO calendar and nothing
   # else, so the calendar is settled here rather than carried across and
@@ -114,16 +121,6 @@ defmodule ExTrafilatura.Options do
   # reading its fields verbatim would quietly produce a different day.
   defp cast(:html_date_override, %Date{calendar: Calendar.ISO} = value),
     do: {value.year, value.month, value.day}
-
-  defp cast(:focus, value), do: invalid(:focus, value, "one of #{inspect(@focuses)}")
-
-  defp cast(key, value) when key in @booleans, do: invalid(key, value, "a boolean")
-
-  defp cast(key, value) when key in @binaries, do: invalid(key, value, "a binary")
-
-  defp cast(:original_url, value), do: invalid(:original_url, value, "a binary")
-
-  defp cast(:excluded_authors, value), do: invalid(:excluded_authors, value, "a list of binaries")
 
   defp cast(:html_date_override, value),
     do: invalid(:html_date_override, value, "a Date in the ISO calendar")

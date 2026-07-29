@@ -1,14 +1,13 @@
-defmodule ExTrafilatura.OptionsTest do
-  use ExUnit.Case, async: true
+defmodule ExTrafilatura.OptionsTest.Document do
+  @moduledoc false
+  # Builds the fixtures below, so that each one shows only the part that the
+  # option under test moves. A module rather than a private function because
+  # the fixtures are module attributes, which are built before the test module
+  # has any functions of its own.
 
-  # Handwritten minimal HTML only (ADR-0003 §3). Each fixture is built so that
-  # exactly one option moves exactly one thing about the output — an option that
-  # silently did nothing would show up here as two identical results.
-  #
-  # The shared `@body` is deliberately over ~250 characters: below the crate's
-  # `min_extracted_size` a second, baseline pass rescues the document and the
-  # option under test stops being the only variable.
-
+  # Deliberately over ~250 characters: below the crate's `min_extracted_size` a
+  # second, baseline pass rescues the document and the option under test stops
+  # being the only variable.
   @body """
   <p>The first paragraph of the article body, long enough that extraction keeps
   it as main content rather than discarding it as a stray fragment of the page
@@ -18,13 +17,33 @@ defmodule ExTrafilatura.OptionsTest do
   pass over the whole document.</p>
   """
 
-  @article """
-  <!DOCTYPE html>
-  <html lang="en">
-    <head><title>A minimal article</title></head>
-    <body><article>#{@body}</article></body>
-  </html>
-  """
+  def body, do: @body
+
+  @doc "An article, with `body` for its content unless something else is given."
+  def article(body \\ @body, head \\ ""), do: page("<article>#{body}</article>", head)
+
+  @doc "A whole `<body>`, for the fixtures whose point is what sits outside the article."
+  def page(body, head \\ "") do
+    """
+    <!DOCTYPE html>
+    <html lang="en">
+      <head><title>A minimal article</title>#{head}</head>
+      <body>#{body}</body>
+    </html>
+    """
+  end
+end
+
+defmodule ExTrafilatura.OptionsTest do
+  use ExUnit.Case, async: true
+
+  import ExTrafilatura.OptionsTest.Document
+
+  # Handwritten minimal HTML only (ADR-0003 §3). Each fixture is built so that
+  # exactly one option moves exactly one thing about the output — an option that
+  # silently did nothing would show up here as two identical results.
+
+  @article article()
 
   describe "extract/1 is the crate's default call" do
     test "the crate's own documented example extracts to what the crate documents" do
@@ -69,21 +88,13 @@ defmodule ExTrafilatura.OptionsTest do
     # `focus` is one enum in the crate, not two booleans, and each of its three
     # values prunes a different amount: recall keeps teasers, precision drops
     # link-heavy trailing blocks that balanced keeps.
-    @focus """
-    <!DOCTYPE html>
-    <html lang="en">
-      <head><title>A minimal article</title></head>
-      <body>
-        <article>
-          <div class="teaser"><p>A teaser blurb that balanced and precision modes
-          both discard as page furniture.</p></div>
-          #{@body}
-          <div class="bottom-links"><p>Trailing link bait that only precision mode
-          discards.</p></div>
-        </article>
-      </body>
-    </html>
-    """
+    @focus article("""
+           <div class="teaser"><p>A teaser blurb that balanced and precision modes
+           both discard as page furniture.</p></div>
+           #{body()}
+           <div class="bottom-links"><p>Trailing link bait that only precision mode
+           discards.</p></div>
+           """)
 
     test ":favor_recall keeps a teaser that :balanced discards" do
       assert {:ok, balanced} = ExTrafilatura.extract(@focus)
@@ -103,19 +114,13 @@ defmodule ExTrafilatura.OptionsTest do
   end
 
   describe "exclude_comments" do
-    @commented """
-    <!DOCTYPE html>
-    <html lang="en">
-      <head><title>A minimal article</title></head>
-      <body>
-        <article>#{@body}</article>
-        <div id="comments">
-          <div class="comment"><p>A reader comment long enough to survive the
-          extractor's minimum length checks on the comments stream.</p></div>
-        </div>
-      </body>
-    </html>
-    """
+    @commented page("""
+               <article>#{body()}</article>
+               <div id="comments">
+                 <div class="comment"><p>A reader comment long enough to survive the
+                 extractor's minimum length checks on the comments stream.</p></div>
+               </div>
+               """)
 
     test "comments are included by default and excluded when asked" do
       # The sense is the crate's, and it is the inverted one: the default is
@@ -129,18 +134,10 @@ defmodule ExTrafilatura.OptionsTest do
   end
 
   describe "exclude_tables" do
-    @tabled """
-    <!DOCTYPE html>
-    <html lang="en">
-      <head><title>A minimal article</title></head>
-      <body>
-        <article>
-          #{@body}
-          <table><tr><td>A cell of tabular content.</td></tr></table>
-        </article>
-      </body>
-    </html>
-    """
+    @tabled article("""
+            #{body()}
+            <table><tr><td>A cell of tabular content.</td></tr></table>
+            """)
 
     test "tables are kept by default and dropped when asked" do
       assert {:ok, kept} = ExTrafilatura.extract(@tabled)
@@ -152,18 +149,10 @@ defmodule ExTrafilatura.OptionsTest do
   end
 
   describe "include_links" do
-    @linked """
-    <!DOCTYPE html>
-    <html lang="en">
-      <head><title>A minimal article</title></head>
-      <body>
-        <article>
-          #{@body}
-          <p>A paragraph carrying <a href="/elsewhere">a hyperlink</a> inside it.</p>
-        </article>
-      </body>
-    </html>
-    """
+    @linked article("""
+            #{body()}
+            <p>A paragraph carrying <a href="/elsewhere">a hyperlink</a> inside it.</p>
+            """)
 
     test "anchors are stripped from the HTML stream by default and kept when asked" do
       assert {:ok, stripped} = ExTrafilatura.extract(@linked)
@@ -176,18 +165,10 @@ defmodule ExTrafilatura.OptionsTest do
   end
 
   describe "include_images" do
-    @imaged """
-    <!DOCTYPE html>
-    <html lang="en">
-      <head><title>A minimal article</title></head>
-      <body>
-        <article>
-          #{@body}
-          <p><img src="/diagram.png" alt="A diagram"></p>
-        </article>
-      </body>
-    </html>
-    """
+    @imaged article("""
+            #{body()}
+            <p><img src="/diagram.png" alt="A diagram"></p>
+            """)
 
     test "images are stripped from the HTML stream by default and kept when asked" do
       assert {:ok, stripped} = ExTrafilatura.extract(@imaged)
@@ -203,21 +184,15 @@ defmodule ExTrafilatura.OptionsTest do
     # second pass runs readability and justext over a copy of the document and
     # keeps whichever result it judges better, so it shows up on a document
     # whose main content the primary pass declines to find.
-    @unstructured """
-    <!DOCTYPE html>
-    <html lang="en">
-      <head><title>A minimal article</title></head>
-      <body>
-        <div id="wrapper">
-          <div><span>Body text held in spans inside anonymous divs, which the
-          primary pass has no content selector for, but which a readability-style
-          scoring pass will happily recover as the main content of the page.</span></div>
-          <div><span>A second span-wrapped block, so there is enough text here for
-          the fallback pass to score this subtree above the rest of the page.</span></div>
-        </div>
-      </body>
-    </html>
-    """
+    @unstructured page("""
+                  <div id="wrapper">
+                    <div><span>Body text held in spans inside anonymous divs, which the
+                    primary pass has no content selector for, but which a readability-style
+                    scoring pass will happily recover as the main content of the page.</span></div>
+                    <div><span>A second span-wrapped block, so there is enough text here for
+                    the fallback pass to score this subtree above the rest of the page.</span></div>
+                  </div>
+                  """)
 
     test "the fallback pass changes what comes back" do
       assert {:ok, without} = ExTrafilatura.extract(@unstructured)
@@ -259,16 +234,10 @@ defmodule ExTrafilatura.OptionsTest do
   describe "prune_selector" do
     # The fixture is the crate's own `test_extract_prune_selector`, which is
     # borrowable for the same reason the doc example above is.
-    @sidebarred """
-    <!DOCTYPE html>
-    <html lang="en">
-      <head><title>A minimal article</title></head>
-      <body>
-        <article>#{@body}</article>
-        <div class="sidebar"><p>Remove this sidebar text.</p></div>
-      </body>
-    </html>
-    """
+    @sidebarred page("""
+                <article>#{body()}</article>
+                <div class="sidebar"><p>Remove this sidebar text.</p></div>
+                """)
 
     test "removes the matched elements before extraction runs" do
       assert {:ok, pruned} = ExTrafilatura.extract(@sidebarred, prune_selector: ".sidebar")
@@ -279,16 +248,7 @@ defmodule ExTrafilatura.OptionsTest do
   end
 
   describe "excluded_authors" do
-    @authored """
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <title>A minimal article</title>
-        <meta name="author" content="Ada Lovelace">
-      </head>
-      <body><article>#{@body}</article></body>
-    </html>
-    """
+    @authored article(body(), ~s(<meta name="author" content="Ada Lovelace">))
 
     test "drops a named author from the metadata" do
       assert {:ok, kept} = ExTrafilatura.extract(@authored)
@@ -301,16 +261,7 @@ defmodule ExTrafilatura.OptionsTest do
   end
 
   describe "html_date_override" do
-    @dated """
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <title>A minimal article</title>
-        <meta property="article:published_time" content="2026-03-09">
-      </head>
-      <body><article>#{@body}</article></body>
-    </html>
-    """
+    @dated article(body(), ~s(<meta property="article:published_time" content="2026-03-09">))
 
     test "replaces the date the document declares" do
       assert {:ok, extracted} = ExTrafilatura.extract(@dated)
@@ -340,7 +291,7 @@ defmodule ExTrafilatura.OptionsTest do
   end
 
   describe "repeated keys" do
-    test "take the first, as Keyword.get/2 does" do
+    test "take the first, as Keyword.fetch/2 does" do
       assert ExTrafilatura.extract(@focus, focus: :favor_recall, focus: :balanced) ==
                ExTrafilatura.extract(@focus, focus: :favor_recall)
     end
@@ -373,9 +324,38 @@ defmodule ExTrafilatura.OptionsTest do
       end
     end
 
-    test "an original_url that is not an absolute URL raises" do
+    test "an original_url with no scheme raises" do
+      # A relative URL cannot be the base that the document's relative links
+      # resolve against, and the crate refuses one too.
       for url <- ["/relative", "example.com/no-scheme", "not a url at all"] do
         assert_raise ArgumentError, fn -> ExTrafilatura.extract(@article, original_url: url) end
+      end
+    end
+
+    test "an original_url the crate would accept is not narrowed further" do
+      # `file:` and `mailto:` parse as `url::Url`, so they are not ours to
+      # refuse — what the crate takes, we take.
+      for url <- ["file:///tmp/an-article.html", "mailto:ada@example.com"] do
+        assert {:ok, _} = ExTrafilatura.extract(@article, original_url: url)
+      end
+    end
+
+    test "nil is a value only for the four keys whose default is nil" do
+      for key <- [:target_language, :original_url, :prune_selector, :html_date_override] do
+        assert ExTrafilatura.extract(@article, [{key, nil}]) == ExTrafilatura.extract(@article)
+      end
+
+      for key <- [
+            :focus,
+            :exclude_comments,
+            :exclude_tables,
+            :include_links,
+            :include_images,
+            :enable_fallback,
+            :has_essential_metadata,
+            :excluded_authors
+          ] do
+        assert_raise ArgumentError, fn -> ExTrafilatura.extract(@article, [{key, nil}]) end
       end
     end
 

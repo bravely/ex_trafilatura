@@ -72,6 +72,11 @@ defmodule ExTrafilatura do
   value raises `ArgumentError`**: exceptions here mean exactly one thing, that
   you called it wrong, and nothing arriving from the network can cause one.
 
+  `nil` is a value only for the four keys whose default is `nil` — passing one
+  of those at `nil` is the same call as leaving it out. On the other eight it is
+  a wrong value and raises, so `focus: nil` is a mistake rather than a way of
+  spelling `:balanced`.
+
   ### The options that are not here
 
   The crate has eighteen fields plus a nested config block of seven. The six
