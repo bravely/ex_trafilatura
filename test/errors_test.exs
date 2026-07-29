@@ -40,10 +40,14 @@ defmodule ExTrafilatura.ErrorsTest do
   # one of the crate's error variants, and asserts on the whole term rather than
   # on its tag — the payload is the part the mapping can get wrong.
   #
-  # Two of the five reasons are unreachable from here — `{:unknown, _}` and
-  # `{:panic, _}` — so both are exercised in `native/` instead, against
-  # synthetic error values (ADR-0006 "Consequences"). The Elixir half of the
-  # panic guard, the `Logger.error`, is reachable and is the last `describe`.
+  # These are the five reasons that come back from the crate. The other two —
+  # `:input_too_large` and `{:invalid_utf8, _}` — are settled in Elixir before
+  # the NIF is reached, and are covered in `test/input_rejection_test.exs`.
+  #
+  # Two of the five are unreachable from here: `{:unknown, _}` and
+  # `{:panic, _}` are exercised in `native/` instead, against synthetic error
+  # values (ADR-0006 "Consequences"). The Elixir half of the panic guard, the
+  # `Logger.error`, is reachable and is the last `describe`.
 
   @title "<title>A minimal article</title>"
   @canonical ~s(<link rel="canonical" href="https://journal.example.com/an-article">)

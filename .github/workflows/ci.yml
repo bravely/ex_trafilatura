@@ -38,13 +38,12 @@ jobs:
             otp: "29.x"
 
     env:
-      # Nothing reads this yet — `ExTrafilatura.Native` is still plain
-      # `use Rustler`. It is set from the start because the moment
-      # `rustler_precompiled` is wired up and an artifact exists for
-      # x86_64-unknown-linux-gnu, `mix test` would download one and test that
-      # instead of the working tree, and a change under native/ would pass CI
-      # without ever being compiled (ADR-0004 §6). It is also what keeps
-      # ADR-0003 §4's "does the vendor directory actually build" property true.
+      # Read by `ExTrafilatura.Native.Target.force_build?/2` (#35). Without it,
+      # the moment an artifact exists for x86_64-unknown-linux-gnu `mix test`
+      # would download one and test that instead of the working tree, and a
+      # change under native/ would pass CI without ever being compiled
+      # (ADR-0004 §6). It is also what keeps ADR-0003 §4's "does the vendor
+      # directory actually build" property true.
       EX_TRAFILATURA_BUILD: "1"
 
     steps:
