@@ -384,6 +384,13 @@ Three tiers, separated by what each can fail on and how often it runs:
   `tests/comparison_test.rs` is run against a clone with our patches applied. **F-score
   below 0.903** (0.01 under the measured 0.913) reopens ADR-0002 §1 rather than being
   settled on release day.
+- **Every tag push, once per artifact** — a **per-artifact smoke test** in
+  `.github/workflows/release.yml`, which is the one thing ADR-0004 §10 adds to the gate.
+  Every tier above proves the *source tree* is correct and says nothing about the eight
+  binaries built from it, so before an artifact is attached it is loaded through the
+  path a user's `mix deps.get` takes and asked for `crate_version/0`. **Seven of the
+  eight**, labelled partial: `x86_64-pc-windows-gnu` needs a MinGW-built ERTS and is not
+  chased.
 
 Deliberately **not** done for v0.1.0: no fuzz pass. A fuzzer over a parser this size
 finds panics with no natural stopping point, and `catch_unwind` plus
